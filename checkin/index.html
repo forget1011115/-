@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>終極整合簽到系統 - 聲音相容修正版</title>
+    <style>
+        html, body { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; font-family: "Microsoft JhengHei", sans-serif; background: #f0f2f5; display: flex; flex-direction: column; align-items: center; }
+        #main-title { font-size: 40px; margin: 5px 0; font-weight: bold; flex-shrink: 0; color: #1a1a1a; }
+        #main-note { width: calc(100% - 40px); font-size: 28px; border: 3px solid #333; background: #fffbe6; padding: 8px; text-align: center; border-radius: 12px; margin: 0 20px 5px 20px; box-sizing: border-box; flex-shrink: 0; }
+        #timer-display { font-size: 32px; color: white; background: #d9534f; padding: 5px 30px; border-radius: 50px; margin-bottom: 5px; display: none; font-weight: bold; animation: blink 1s infinite; flex-shrink: 0; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        .info-section { width: calc(100% - 40px); background: white; padding: 8px 0; border-radius: 12px; margin-bottom: 5px; display: flex; justify-content: space-around; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); flex-shrink: 0; }
+        #clock { font-size: 2.8em; font-weight: bold; }
+        #date { font-size: 1.6em; color: #555; }
+        .list-container { width: calc(100% - 40px); flex-grow: 1; background: white; padding: 10px; border-radius: 15px; margin: 0 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; }
+        .user-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; width: 100%; height: 100%; align-content: stretch; overflow: hidden; }
+        .user-card { border: 2px solid #ddd; text-align: center; border-radius: 10px; font-weight: bold; background: #fff; cursor: pointer; display: flex; flex-direction: column; justify-content: center; font-size: 22pt; box-sizing: border-box; position: relative; user-select: none; }
+        .user-card .status-tag { position: absolute; top: 4px; right: 6px; font-size: 12px; font-weight: normal; opacity: 0.8; }
+        
+        .rank-1 { background-color: #FFFF00 !important; color: #000; } 
+        .rank-2 { background-color: #007BFF !important; color: #fff; } 
+        .rank-3 { background-color: #28A745 !important; color: #fff; } 
+        .rank-4 { background-color: #6F42C1 !important; color: #fff; } 
+        .rank-5 { background-color: #8B4513 !important; color: #fff; } 
+        .rank-later { background-color: #A9A9A9 !important; color: #fff; } 
+        .status-leave { background-color: #FF0000 !important; color: #fff; } 
+
+        .control-panel { padding: 10px; flex-shrink: 0; text-align: center; }
+        button { padding: 10px 15px; font-size: 16px; cursor: pointer; border-radius: 8px; border: none; font-weight: bold; margin: 0 5px; color: white; }
+        .modal { position: absolute; top: 5%; left: 5%; width: 90%; height: 90%; background: white; border: 3px solid #333; padding: 25px; z-index: 200; display: none; overflow-y: auto; border-radius: 20px; box-shadow: 0 0 50px rgba(0,0,0,0.5); box-sizing: border-box; }
+        .black-box { background: black; color: white; padding: 5px 8px; margin: 2px; display: inline-block; border-radius: 4px; font-size: 16px; }
+        .red-box { background: #d9534f; color: white; padding: 5px 8px; margin: 2px; display: inline-block; border-radius: 4px; font-size: 16px; }
+        #scanner-input { position: fixed; opacity: 0; left: -1000px; }
+    </style>
+</head>
+<body onclick="initAudio(); if(event.target.tagName!=='INPUT' && event.target.tagName!=='TEXTAREA') document.getElementById('scanner-input').focus()">
+
+<div id="main-title">條碼簽到系統</div>
+<div id="main-note">點擊卡片標記「請假」(紅色)，掃描進行簽到</div>
+<div id="timer-display"></div>
+
+<div class="info-section">
+    <div id="date"></div>
+    <div id="clock">00:00:00</div>
+</div>
+
+<div class="list-container">
+    <div id="msg" style="text-align:center; font-size:24px; font-weight:bold; height:35px; color:blue; margin-bottom:5px;"></div>
+    <div id="user-display" class="user-grid"></div>
+</div>
+
+<div class="control-panel">
+    <button style="background:#28a745;" onclick="exportVerticalExcel()">📁 匯出列印名單</button>
+    <button style="background:#6f42c1;" onclick="toggleReport()">📊 查詢月報表</button>
+    <button style="background:#e67e22;" onclick="saveAndReset()">結算今日重置</button>
+    <button style="background:#6c757d;" onclick="toggleSetup()">⚙️ 系統設定/轉移</button>
+</div>
+
+<div id="report-box" class="modal">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>📊 月度報表</h2>
+        <button onclick="toggleReport()" style="background:#666; color:white;">關閉</button>
+    </div>
+    <div style="margin:20px 0;">
+        選擇月份：<input type="month" id="report-month-input">
+        <button style="background:#007bff; color:white;" onclick="generateMonthlyReport()">產生</button>
+    </div>
+    <div id="report-result-area"></div>
+</div>
+
+<div id="setup-box" class="modal">
+    <h3>⚙️ 系統設定</h3>
+    修改標題：<input type="text" id="input-title" style="width:100%; font-size:20px; padding:5px;"><br><br>
+    修改提示：<input type="text" id="input-note" style="width:100%; font-size:20px; padding:5px;"><br><br>
+    截止時間 (HH:mm)：<input type="time" id="input-deadline" style="font-size:20px;"><br><br>
+    人員名單 (每行一個)：<br>
+    <textarea id="name-input-area" style="width:100%; height:200px; font-size:18px;"></textarea><br><br>
+    <button style="background:#007bff; color:white;" onclick="saveConfig()">💾 儲存並更新</button>
+    <button style="background:#666; color:white;" onclick="toggleSetup()">取消</button>
+    <hr>
+    <button style="background:#8e44ad; color:white;" onclick="backupSettings()">📤 備份目前設定</button>
+    <button style="background:#2c3e50; color:white;" onclick="document.getElementById('upload-backup').click()">📥 匯入設定</button>
+    <input type="file" id="upload-backup" style="display:none" onchange="importSettings(this)">
+</div>
+
+<input type="text" id="scanner-input" autofocus autocomplete="off">
+
+<script>
+    const STORAGE_KEY = "v_final_universal"; 
+    
+    let db = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    let users = db.users || [];
+    let history = db.history || [];
+    let config = db.config || {"title":"條碼簽到系統","note":"點擊卡片標記「請假」(紅色)，掃描進行簽到","deadline":"23:59"};
+    
+    let isLocked = false;
+    let audioCtx = null;
+    let lastPlayedSecond = -1;
+
+    function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    
+    function playBeep(freq, duration) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sine"; osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + duration);
+    }
+
+    function saveAll() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({users, history, config}));
+    }
+
+    function render() {
+        if(users.length === 0) { toggleSetup(); return; }
+        document.getElementById('main-title').innerText = config.title;
+        document.getElementById('main-note').innerText = config.note;
+        const grid = document.getElementById('user-display');
+        grid.innerHTML = users.map(u => {
+            let cls = u.rank ? (u.rank <= 5 ? 'rank-'+u.rank : 'rank-later') : (u.status==='leave'?'status-leave':'');
+            let tagText = u.rank ? `#${u.rank}` : (u.status==='leave'?'請假':'');
+            return `<div class="user-card ${cls}" onclick="setLeave('${u.id}')">
+                <span class="status-tag">${tagText}</span>
+                <span style="font-size:12px; opacity:0.4">#${u.id}</span>${u.name}
+            </div>`;
+        }).join('');
+    }
+
+    function updateClock() {
+        const now = new Date();
+        document.getElementById('clock').innerText = now.toLocaleTimeString('zh-TW', { hour12: false });
+        document.getElementById('date').innerText = now.toLocaleDateString('zh-TW') + " 星期" + "日一二三四五六"[now.getDay()];
+
+        if (config.deadline) {
+            const [h, m] = config.deadline.split(':').map(Number);
+            const dLine = new Date(); dLine.setHours(h, m, 0, 0);
+            const diff = Math.floor((dLine - now) / 1000);
+
+            if (diff <= 0) {
+                if (isLocked === false && diff === 0) playBeep(440, 1.5);
+                isLocked = true;
+                document.getElementById('timer-display').style.display = 'none';
+                document.getElementById('msg').innerText = "❌ 簽到已截止";
+            } else if (diff <= 180) {
+                isLocked = false;
+                document.getElementById('timer-display').style.display = 'block';
+                document.getElementById('timer-display').innerText = `⚠️ 距離截止還有：${diff} 秒`;
+                if (diff <= 10 && diff > 0 && diff !== lastPlayedSecond) {
+                    playBeep(880, 0.1);
+                    lastPlayedSecond = diff;
+                }
+            } else {
+                document.getElementById('timer-display').style.display = 'none';
+                isLocked = false;
+            }
+        }
+    }
+
+    document.getElementById('scanner-input').addEventListener('keydown', (e) => {
+        if(e.key === 'Enter') {
+            if(isLocked) { alert("簽到已截止！"); e.target.value = ''; return; }
+            const val = e.target.value.trim();
+            const u = users.find(x => x.id === val || parseInt(x.id) === parseInt(val) || x.id === val.padStart(3, '0'));
+            if(u) {
+                if(u.rank) {
+                    document.getElementById('msg').innerText = `⚠️ ${u.name} 已經簽到過了！`;
+                } else if(u.status === 'leave') {
+                    document.getElementById('msg').innerText = `⚠️ ${u.name} 已標記請假，無法簽到！`;
+                } else {
+                    u.rank = users.filter(x => x.rank).length + 1;
+                    document.getElementById('msg').innerText = `✅ ${u.name} 簽到成功！(第 ${u.rank} 位)`;
+                    playBeep(523.25, 0.2);
+                    saveAll(); render();
+                }
+            } else {
+                document.getElementById('msg').innerText = `❌ 查無此編號：${val}`;
+            }
+            e.target.value = '';
+        }
+    });
+
+    function setLeave(id) {
+        if(isLocked) return alert("簽到已截止，無法變更狀態！");
+        const u = users.find(x => x.id === id);
+        if(!u) return;
+        if(u.rank) {
+            alert(`⚠️ ${u.name} 已經完成簽到，無法標記請假！`);
+            return;
+        }
+        u.status = u.status === 'leave' ? null : 'leave';
+        document.getElementById('msg').innerText = u.status === 'leave' ? `📌 ${u.name} 已標記為請假` : `ℹ️ ${u.name} 已取消請假`;
+        saveAll(); render();
+    }
+
+    function importSettings(input) {
+        const file = input.files[0]; if(!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                users = data.users || data.v18_users || [];
+                config = data.config || data.v18_config || config;
+                history = data.history || data.v18_history || [];
+                saveAll();
+                alert("資料匯入成功！");
+                location.reload();
+            } catch(err) {
+                alert("檔案格式不符，請確認是否為備份檔。");
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    function saveConfig() {
+        config.title = document.getElementById('input-title').value.trim();
+        config.note = document.getElementById('input-note').value.trim();
+        config.deadline = document.getElementById('input-deadline').value;
+        const names = document.getElementById('name-input-area').value.trim().split('\n').filter(s => s.trim());
+        users = names.map((n, i) => ({ id: (i + 1).toString().padStart(3, '0'), name: n.trim(), rank: null, status: null }));
+        saveAll(); location.reload();
+    }
+
+    function toggleSetup() { 
+        const s = document.getElementById('setup-box'); 
+        if (s.style.display === 'none' || s.style.display === '') { 
+            document.getElementById('input-title').value = config.title; 
+            document.getElementById('input-note').value = config.note; 
+            document.getElementById('input-deadline').value = config.deadline; 
+            document.getElementById('name-input-area').value = users.map(u => u.name).join('\n'); 
+            s.style.display = 'block'; 
+        } else { 
+            s.style.display = 'none'; 
+        } 
+    }
+
+    function toggleReport() { 
+        document.getElementById('report-box').style.display = (document.getElementById('report-box').style.display==='none')?'block':'none'; 
+    }
+
+    function generateMonthlyReport() { 
+        const target = document.getElementById('report-month-input').value; 
+        if(!target) return alert("請先選擇月份！");
+        const filtered = history.filter(h => h.month === target); 
+        let html = filtered.length ? '<table border="1" style="width:100%; border-collapse:collapse; text-align:left;"><tr style="background:#f2f2f2;"><th style="padding:8px;">日期</th><th style="padding:8px;">未簽到（黑色）/ 請假（紅色）</th></tr>' : '無紀錄'; 
+        filtered.forEach(h => { 
+            const m = (h.missing || []).map(n => `<span class="black-box">${n}</span>`).join(' '); 
+            const l = (h.leaves || []).map(n => `<span class="red-box">${n}</span>`).join(' ');
+            html += `<tr><td style="padding:10px; width:150px;">${h.dateStr}</td><td>${m || ''} ${l || ''} ${(!m && !l) ? '✅ 全員到齊' : ''}</td></tr>`; 
+        }); 
+        document.getElementById('report-result-area').innerHTML = html + "</table>"; 
+    }
+
+    function saveAndReset() { 
+        if(!confirm("確定要結算今日並重置簽到狀態嗎？")) return; 
+        const now = new Date(); 
+        history.push({ 
+            month: now.getFullYear() + "-" + (now.getMonth()+1).toString().padStart(2, '0'), 
+            dateStr: now.toLocaleDateString('zh-TW'), 
+            missing: users.filter(u => !u.rank && u.status !== 'leave').map(u => u.name),
+            leaves: users.filter(u => u.status === 'leave').map(u => u.name)
+        }); 
+        users.forEach(u => { u.rank = null; u.status = null; }); 
+        saveAll(); render(); 
+        document.getElementById('msg').innerText = "🔄 已完成今日結算與重置！";
+    }
+
+    function exportVerticalExcel() { 
+        let csv = "\uFEFF"; 
+        for (let i = 0; i < users.length; i += 4) { 
+            let r1 = "", r2 = "", r3 = ""; 
+            for (let j = 0; j < 4; j++) { 
+                let u = users[i + j]; 
+                if (u) { 
+                    r1 += `編號:${u.id},`; 
+                    r2 += `${u.name},`; 
+                    r3 += `*${u.id}*,`; 
+                } else { 
+                    r1 += ",", r2 += ",", r3 += ","; 
+                } 
+            } 
+            csv += r1 + "\n" + r2 + "\n" + r3 + "\n\n"; 
+        } 
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); 
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${config.title}_列印名單.csv`; a.click(); 
+    }
+
+    function backupSettings() { 
+        const blob = new Blob([JSON.stringify({users, config, history}, null, 2)], {type:'text/plain'}); 
+        const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`簽到系統備份_${new Date().toLocaleDateString()}.txt`; a.click(); 
+    }
+
+    setInterval(updateClock, 1000);
+    window.onload = () => { updateClock(); render(); };
+</script>
+</body>
+</html>
