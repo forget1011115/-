@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title id="web-title">物品繳交管理系統</title>
+    <style>
+        :root { --primary: #3498db; --success: #2ecc71; --bg: #f4f7f6; --header-bg: #2c3e50; --danger: #e74c3c; --warning: #f39c12; --info: #9b59b6; }
+        html, body { height: 100vh; width: 100vw; margin: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); font-family: "Microsoft JhengHei", sans-serif; }
+        .container { flex: 1; display: flex; flex-direction: column; padding: 10px; box-sizing: border-box; height: 100vh; }
+        .card { background: white; padding: 8px 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); flex-shrink: 0; }
+        .hidden { display: none !important; }
+        
+        #title-input { width: 100%; padding: 8px; font-size: 16px; border: 2px solid #ccc; border-radius: 6px; box-sizing: border-box; height: 40px; }
+        #items-input, #users-input { width: 100%; height: 160px; padding: 10px; font-size: 16px; border: 2px solid #ccc; border-radius: 6px; box-sizing: border-box; resize: none; line-height: 1.5; font-family: inherit; }
+        
+        .header-row-1 { display: flex; justify-content: space-between; align-items: center; gap: 15px; height: 45px; }
+        .row-1-left { display: flex; align-items: center; gap: 20px; flex: 1; min-width: 0; }
+        .activity-name { font-size: 38px; font-weight: 900; color: var(--primary); margin: 0; line-height: 1; white-space: nowrap; }
+        
+        .item-checker-inline { display: flex; align-items: center; gap: 16px; background: #e1f5fe; padding: 4px 12px; border-radius: 8px; border: 1px solid #b3e5fc; overflow-x: auto; white-space: nowrap; flex: 1; }
+        .item-checker-inline label { font-size: 18px; font-weight: bold; color: #01579b; white-space: nowrap; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+        .row-1-right { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+        .stat-badge { font-size: 16px; font-weight: bold; color: #2c3e50; background: #ecf0f1; padding: 6px 12px; border-radius: 6px; border: 1px solid #bdc3c7; }
+
+        .header-row-2 { display: flex; justify-content: space-between; align-items: center; gap: 15px; height: 45px; margin-top: 6px; }
+        .row-2-left { display: flex; align-items: center; gap: 12px; }
+        #scan-input { width: 180px; padding: 6px 10px; font-size: 18px; border: 3px solid var(--primary); border-radius: 8px; text-align: center; box-sizing: border-box; background: #fffde7; outline: none; }
+        .ime-warning { color: var(--danger); font-weight: bold; font-size: 16px; white-space: nowrap; }
+        .row-2-right { display: flex; gap: 8px; align-items: center; }
+        
+        .matrix-container { flex: 1; overflow: auto; background: white; border: 2px solid #ddd; margin-top: 10px; min-height: 0; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        
+        th { background: var(--header-bg); color: white; padding: 5px; border: 1px solid #444; height: 35px; font-size: 1.2rem; position: sticky; top: 0; z-index: 10; box-sizing: border-box; }
+        
+        tr { height: 21px; box-sizing: border-box; }
+        
+        .name-col { background: #fdfdfd; font-weight: 900; position: sticky; left: 0; z-index: 9; width: 150px; color: #000; text-align: left; padding-left: 10px; border-right: 4px solid var(--primary); white-space: nowrap; font-size: 0.85rem; letter-spacing: -1px; }
+        
+        td { border: 1px solid #dfe6e9; text-align: center; padding: 0; font-size: 0.9rem; box-sizing: border-box; }
+        
+        .received { background: var(--success) !important; color: white !important; font-weight: bold; }
+        .empty-row { background: #f2f2f2 !important; color: #bbb !important; cursor: not-allowed; }
+        
+        .btn { padding: 8px 14px; border: none; border-radius: 5px; cursor: pointer; font-size: 13px; color: white; font-weight: bold; transition: 0.2s; white-space: nowrap; }
+        .btn:hover { opacity: 0.8; }
+        
+        #modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; display: flex; justify-content: center; align-items: center; }
+        .modal-content { background: white; width: 80%; max-width: 600px; max-height: 80vh; border-radius: 12px; padding: 25px; display: flex; flex-direction: column; }
+        .modal-header { border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 15px; font-size: 24px; font-weight: bold; color: var(--danger); display: flex; justify-content: space-between; }
+        .modal-body { flex: 1; overflow-y: auto; }
+        .missing-group { margin-bottom: 15px; }
+        .missing-item-title { font-weight: bold; background: #eee; padding: 4px 10px; border-radius: 4px; display: block; margin-bottom: 5px; }
+        .missing-names { font-size: 18px; line-height: 1.8; color: #333; padding-left: 10px; }
+        .warning-note { margin-top: 15px; padding: 20px; border: 2px solid var(--danger); border-radius: 8px; background: #fff1f0; color: var(--danger); font-size: 18px; font-weight: bold; line-height: 1.8; }
+        .setup-actions { display: flex; gap: 10px; margin-top: 15px; }
+        .btn-main { flex: 1; padding: 15px; font-size: 18px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <!-- 1. 系統設定區 -->
+    <div id="setup-panel" class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h2 style="margin:0;">⚙️ 系統設定</h2>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn" style="background:#7f8c8d;" onclick="exportConfig()">📤 備份設定檔</button>
+                <button class="btn" style="background:#7f8c8d;" onclick="document.getElementById('import-file').value=''; document.getElementById('import-file').click();">📥 還原設定檔</button>
+                <input type="file" id="import-file" style="display:none;" accept=".json" onchange="importConfig(event)">
+                <button class="btn" style="background:var(--danger); opacity: 0.7;" onclick="reset()">🧹 徹底清空</button>
+            </div>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px;">
+            <div><label style="font-size:12px;">活動名稱：</label><input type="text" id="title-input" style="width:100%; padding:8px; box-sizing:border-box;"></div>
+            <div><label style="font-size:12px;">物品設定 (每行一個)：</label><textarea id="items-input" placeholder="例如：&#10;手機&#10;錢包"></textarea></div>
+            <div><label style="font-size:12px;">人員名單 (每行一個)：</label><textarea id="users-input" placeholder="張三&#10;李四"></textarea></div>
+        </div>
+        <div class="setup-actions">
+            <button class="btn btn-main" style="background:var(--primary);" onclick="initAndExportLabels()">💾 儲存並導出標籤檔</button>
+            <button class="btn btn-main" style="background:var(--info);" onclick="startTracking()">🚀 直接進入/返回清點頁面</button>
+        </div>
+        <div class="warning-note">
+            ⚠️ 標籤列印重要提醒：<br>
+            1. 標籤列印時需要先下載 Free 3 of 9 條碼字型檔。<br>
+            2. 條碼列字體大小設為 22。<br>
+            3. 自行調整適合的欄寬。<br>
+            4. 並將 2. 5. 8..... 列，選取改為條碼字型檔。<br>
+            5. 列印前要注意是否名稱與條碼在同一頁上。
+        </div>
+    </div>
+
+    <!-- 2. 清點頁面 -->
+    <div id="tracking-panel" class="container hidden" style="padding:0;">
+        <div class="card">
+            <!-- 第一列 -->
+            <div class="header-row-1">
+                <div class="row-1-left">
+                    <h1 class="activity-name" id="display-title">活動名稱</h1>
+                    <div id="item-checker-inline" class="item-checker-inline"></div>
+                </div>
+                <div class="row-1-right">
+                    <span id="stat-info" class="stat-badge">已收：0/0</span>
+                    <button class="btn" style="background:var(--warning);" onclick="backToSetup()">✏️ 修改設定</button>
+                    <button class="btn" style="background:var(--success);" onclick="exportStatus()">💾 匯出結果</button>
+                </div>
+            </div>
+            
+            <!-- 第二列 -->
+            <div class="header-row-2">
+                <div class="row-2-left">
+                    <input type="text" id="scan-input" placeholder="掃描..." autocomplete="off">
+                    <span class="ime-warning">⚠️ 英文輸入模式</span>
+                </div>
+                <div class="row-2-right">
+                    <button class="btn" style="background:var(--danger); font-size:16px; padding: 10px 20px;" onclick="showMissingReport()">🏁 清點完成</button>
+                    <button class="btn" style="background:#7f8c8d;" onclick="clearRecordsOnly()">🔄 歸零清點</button>
+                </div>
+            </div>
+        </div>
+        <div class="matrix-container" id="matrix-html"></div>
+    </div>
+</div>
+
+<div id="modal-overlay" class="hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span>❌ 缺交名單報告</span>
+            <button onclick="closeModal()" style="background:none; border:none; font-size:24px; cursor:pointer;">×</button>
+        </div>
+        <div class="modal-body" id="modal-body"></div>
+        <button class="btn" style="background:#333; margin-top:15px; padding:12px;" onclick="closeModal()">關閉視窗</button>
+    </div>
+</div>
+
+<script>
+const storageKey = 'inv_matrix_v2026_clean_final_v1'; 
+let db = { title: "", items: [], users: [], records: {} };
+
+function getCleanInputs() {
+    let items = document.getElementById('items-input').value.trim().split('\n').filter(s => s);
+    let rawUsers = document.getElementById('users-input').value.split('\n');
+    
+    while(rawUsers.length > 0 && rawUsers[rawUsers.length - 1].trim() === "") { rawUsers.pop(); }
+    
+    let users = rawUsers.map(s => {
+        let trimmed = s.trim();
+        return trimmed === "" ? "空" : trimmed;
+    });
+    
+    return { items, users };
+}
+
+function importConfig(event) {
+    const file = event.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const imported = JSON.parse(e.target.result);
+            if (Array.isArray(imported.items) && Array.isArray(imported.users)) {
+                db = { title: imported.title || "物品清點", items: imported.items, users: imported.users, records: imported.records || {} };
+                save(); alert("還原成功！"); location.reload(); 
+            } else { alert("檔案內容格式不符。"); }
+        } catch (err) { alert("無法讀取檔案。"); }
+    };
+    reader.readAsText(file);
+}
+
+function exportConfig() {
+    const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${db.title || '清點設定'}_備份.json`; a.click();
+}
+
+function save() { localStorage.setItem(storageKey, JSON.stringify(db)); }
+
+function load() {
+    const s = localStorage.getItem(storageKey);
+    if (s) {
+        try {
+            db = JSON.parse(s);
+            document.getElementById('title-input').value = db.title || "";
+            document.getElementById('items-input').value = (db.items || []).join('\n');
+            document.getElementById('users-input').value = (db.users || []).join('\n');
+            if(db.users && db.users.length) startTracking();
+        } catch(e) {}
+    }
+}
+
+function initAndExportLabels() {
+    const inputs = getCleanInputs(); if (!inputs.items.length || !inputs.users.length) return alert("不可空白");
+    db.title = document.getElementById('title-input').value.trim(); db.items = inputs.items; db.users = inputs.users;
+    let csv = "\uFEFF"; const cols = 7; let all = [];
+    db.items.forEach((it, iIdx) => {
+        const letter = String.fromCharCode(65 + iIdx);
+        db.users.forEach((u, uIdx) => {
+            const uCode = (uIdx + 1).toString().padStart(3, '0');
+            if (u.trim() && u.trim() !== "空" && u.trim() !== "從缺") {
+                all.push({t:`${it} (${letter}-${uCode})`, c:`*${letter}-${uCode}*`});
+            }
+        });
+    });
+    for (let i = 0; i < all.length; i += cols) {
+        let rT = [], rC = [];
+        for (let j = 0; j < cols; j++) {
+            if (i+j < all.length) { rT.push(all[i+j].t); rC.push(all[i+j].c); } else { rT.push(""); rC.push(""); }
+        }
+        csv += rT.join(",") + "\n" + rC.join(",") + "\n\n";
+    }
+    const b = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `${db.title}_標籤.csv`; a.click();
+    startTracking();
+}
+
+function startTracking() {
+    const inputs = getCleanInputs(); if (!inputs.items.length || !inputs.users.length) return alert("請先完成設定");
+    db.items = inputs.items; db.users = inputs.users; db.title = document.getElementById('title-input').value.trim() || "物品清點";
+    
+    document.getElementById('setup-panel').classList.add('hidden');
+    document.getElementById('tracking-panel').classList.remove('hidden');
+    document.getElementById('display-title').innerText = db.title;
+    
+    const checkerArea = document.getElementById('item-checker-inline'); checkerArea.innerHTML = '';
+    db.items.forEach((item, idx) => {
+        checkerArea.innerHTML += `<label><input type="checkbox" class="target-item" value="${idx}"> ${item}</label>`;
+    });
+    renderMatrix(); save();
+}
+
+function renderMatrix() {
+    const container = document.getElementById('matrix-html'); if(!container) return;
+    let h = `<table><thead><tr><th class="name-col">姓名</th>`;
+    db.items.forEach(it => h += `<th>${it}</th>`);
+    h += `</tr></thead><tbody>`; 
+    db.users.forEach((u, uIdx) => {
+        const isEmpty = !u.trim() || u.trim() === "空" || u.trim() === "從缺";
+        const uCode = (uIdx + 1).toString().padStart(3, '0');
+        h += `<tr class="${isEmpty ? 'empty-row' : ''}">`;
+        h += `<td class="name-col">${isEmpty ? '('+uCode+' 空)' : u}</td>`;
+        db.items.forEach((_, iIdx) => {
+            const code = `${String.fromCharCode(65 + iIdx)}-${uCode}`;
+            h += isEmpty ? `<td>-</td>` : `<td id="cell-${code}" class="${db.records[code] ? 'received' : ''}">${code}</td>`;
+        });
+        h += `</tr>`;
+    });
+    container.innerHTML = h + `</tbody></table>`; updateStats();
+    setTimeout(() => document.getElementById('scan-input').focus(), 150);
+}
+
+const scanInput = document.getElementById('scan-input');
+scanInput.addEventListener('input', e => {
+    let val = e.target.value.toUpperCase().trim();
+    let targetCode = "";
+    if (val.length >= 7 && val.startsWith('*') && val.includes('*', 2)) {
+        targetCode = val.substring(1, 6);
+    } else if (val.length >= 5 && !val.startsWith('*')) {
+        targetCode = val.substring(0, 5);
+    }
+    if (targetCode !== "") {
+        const cell = document.getElementById(`cell-${targetCode}`);
+        if (cell && !cell.parentNode.classList.contains('empty-row')) {
+            db.records[targetCode] = true; cell.classList.add('received'); updateStats(); save();
+        }
+        e.target.value = '';
+    }
+});
+
+scanInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.value = ''; } });
+
+// 僅在清點頁面且點擊非輸入控制項時自動重新對焦掃描框
+scanInput.addEventListener('blur', () => {
+    const isTrackingActive = !document.getElementById('tracking-panel').classList.contains('hidden');
+    const isModalActive = !document.getElementById('modal-overlay').classList.contains('hidden');
+    if (isTrackingActive && !isModalActive) {
+        setTimeout(() => scanInput.focus(), 100);
+    }
+});
+
+function showMissingReport() {
+    const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
+    if (checkedTargets.length === 0) return alert("⚠️ 請先在最上方勾選本次要統計的項目！");
+    let reportHtml = ""; let found = false;
+    checkedTargets.forEach(itemIdx => {
+        const itemName = db.items[itemIdx]; const letter = String.fromCharCode(65 + itemIdx); let missing = [];
+        db.users.forEach((u, uIdx) => {
+            if (u.trim() && u.trim() !== "空" && u.trim() !== "從缺") {
+                const code = `${letter}-${(uIdx+1).toString().padStart(3,'0')}`; if (!db.records[code]) missing.push(u);
+            }
+        });
+        if (missing.length > 0) { found = true; reportHtml += `<div class="missing-group"><span class="missing-item-title">📦 ${itemName}</span><div class="missing-names">${missing.join('、')}</div></div>`; }
+    });
+    document.getElementById('modal-body').innerHTML = found ? reportHtml : "<div style='text-align:center; color:green; font-size:20px; padding:20px;'>✅ 本次統計項目已全數清點完畢！</div>";
+    document.getElementById('modal-overlay').classList.remove('hidden');
+}
+
+function closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); scanInput.focus(); }
+
+function updateStats() {
+    let total = 0; if(!db.users) return;
+    db.users.forEach(u => { if(u.trim() && u.trim() !== "空" && u.trim() !== "從缺") total += db.items.length; });
+    const statElem = document.getElementById('stat-info');
+    if (statElem) {
+        statElem.innerText = `已收：${Object.keys(db.records).length}/${total}`;
+    }
+}
+
+function backToSetup() { document.getElementById('setup-panel').classList.remove('hidden'); document.getElementById('tracking-panel').classList.add('hidden'); }
+
+function clearRecordsOnly() { if(confirm("確定歸零清點紀錄？")) { db.records = {}; renderMatrix(); save(); } }
+
+function exportStatus() {
+    let csv = "\uFEFF活動場次," + db.title + "\n姓名," + db.items.join(',') + "\n";
+    db.users.forEach((u, uIdx) => {
+        const isE = !u.trim() || u.trim() === "空" || u.trim() === "從缺"; let row = [isE ? "空號" : u];
+        db.items.forEach((_, iIdx) => {
+            const code = `${String.fromCharCode(65 + iIdx)}-${(uIdx+1).toString().padStart(3,'0')}`; row.push(isE ? "-" : (db.records[code] ? "已交" : "缺"));
+        });
+        csv += row.join(',') + "\n";
+    });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })); a.download = `${db.title}_結果報告.csv`; a.click();
+}
+
+function reset() { if(confirm("徹底重設？")){ localStorage.removeItem(storageKey); location.reload(); } }
+
+window.onload = load;
+</script>
+</body>
+</html>
