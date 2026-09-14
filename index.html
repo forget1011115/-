@@ -330,6 +330,7 @@ function updateStats() {
 function backToSetup() { document.getElementById('setup-panel').classList.remove('hidden'); document.getElementById('tracking-panel').classList.add('hidden'); }
 function clearRecordsOnly() { if(confirm("確定歸零清點紀錄？")) { db.records = {}; renderMatrix(); save(); } }
 
+// 🌟 核心修改：同步至試算表 (包含連假提醒 alert 處理)
 function syncToGAS() {
     const url = document.getElementById('gas-url-input').value.trim();
     if (!url) return alert("❌ 請先點選「修改設定」，填入 GAS Web App URL！");
@@ -369,14 +370,25 @@ function syncToGAS() {
         payload.items.push({ itemName: itemName, records: records });
     });
 
+    // 🌟 發送 POST 請求並接收 GAS 回傳的提醒訊息
     fetch(url, {
         method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(payload)
-    }).then(() => {
-        alert("✅ 資料已成功發送至 Google 試算表！");
-    }).catch(err => alert("❌ 同步失敗：" + err));
+    })
+    .then(response => response.json())
+    .then(data => {
+        // 檢查後端是否傳回連假警告 (HOLIDAY_WARNING 或 isHoliday 為 true)
+        if (data.warning === "HOLIDAY_WARNING" || data.isHoliday === true) {
+            alert("⚠️ 【連假靜音提醒】\n目前『每日自動推播』處於關閉狀態！\n若已收假/開學，請記得回到試算表選單點擊『🟢 開啟每日自動推播』。");
+        } else {
+            alert("✅ 資料已成功發送至 Google 試算表！");
+        }
+    })
+    .catch(err => {
+        console.error("同步錯誤:", err);
+        alert("❌ 同步失敗：" + err);
+    });
 }
 
 function reset() { if(confirm("徹底重設？")){ localStorage.removeItem(storageKey); location.reload(); } }
