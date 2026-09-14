@@ -330,7 +330,7 @@ function updateStats() {
 function backToSetup() { document.getElementById('setup-panel').classList.remove('hidden'); document.getElementById('tracking-panel').classList.add('hidden'); }
 function clearRecordsOnly() { if(confirm("確定歸零清點紀錄？")) { db.records = {}; renderMatrix(); save(); } }
 
-// 🌟 核心修改：同步至試算表 (包含連假提醒 alert 處理)
+// 🌟 核心修改：同步至試算表 (包含連假提醒 alert 強化處理)
 function syncToGAS() {
     const url = document.getElementById('gas-url-input').value.trim();
     if (!url) return alert("❌ 請先點選「修改設定」，填入 GAS Web App URL！");
@@ -378,11 +378,13 @@ function syncToGAS() {
     })
     .then(response => response.json())
     .then(data => {
-        // 檢查後端是否傳回連假警告 (HOLIDAY_WARNING 或 isHoliday 為 true)
-        if (data.warning === "HOLIDAY_WARNING" || data.isHoliday === true) {
-            alert("⚠️ 【連假靜音提醒】\n目前『每日自動推播』處於關閉狀態！\n若已收假/開學，請記得回到試算表選單點擊『🟢 開啟每日自動推播』。");
+        // 🌟 強化跨電腦相容判斷：同時比對 Warning 字串與 Boolean / String 狀態
+        const isHolidayActive = (data.warning === "HOLIDAY_WARNING" || data.isHoliday === true || data.isHoliday === "true");
+
+        if (isHolidayActive) {
+            alert("⚠️ 【連假靜音提醒】\n目前『每日自動推播』處於關閉（靜音）狀態！\n\n若今天為正常上課日，請務必回到 Google 試算表選單點擊：\n『🌟 班級小幫手』➔『🟢 開啟每日自動推播』，否則今晚家長將不會收到缺交推播！");
         } else {
-            alert("✅ 資料已成功發送至 Google 試算表！");
+            alert("✅ 資料已成功發送至 Google 試算表！今晚將正常執行缺交推播。");
         }
     })
     .catch(err => {
