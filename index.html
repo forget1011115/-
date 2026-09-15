@@ -88,8 +88,6 @@
                     <div id="item-checker-inline" class="item-checker-inline"></div>
                 </div>
                 <div class="row-1-right">
-                    <span id="stat-info" class="stat-badge">已收：0/0</span>
-                    <button class="btn" style="background:var(--warning);" onclick="backToSetup()">✏️ 修改設定</button>
                     <button class="btn" style="background:var(--primary);" onclick="syncToGAS()">☁️ 同步至試算表</button>
                 </div>
             </div>
@@ -102,6 +100,9 @@
                     <button class="btn mode-btn active" id="btn-mode-normal" style="background:var(--success);" onclick="setMode('normal')">🟢 清點(已繳)</button>
                     <button class="btn mode-btn" id="btn-mode-fix" style="background:var(--warning);" onclick="setMode('fix')">🟡 登記未訂正</button>
                     <button class="btn mode-btn" id="btn-mode-leave" style="background:#95a5a6;" onclick="setMode('leave')">🔵 點擊姓名請假</button>
+                    <!-- 移至下方的項目：已處理計數器與修改設定按鈕 -->
+                    <span id="stat-info" class="stat-badge">已處理：0/0</span>
+                    <button class="btn" style="background:var(--warning);" onclick="backToSetup()">✏️ 修改設定</button>
                 </div>
                 <div class="row-2-right">
                     <button class="btn" style="background:var(--danger); font-size:16px; padding: 10px 20px;" onclick="showMissingReport()">🏁 清點完成</button>
