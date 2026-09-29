@@ -28,6 +28,8 @@
         tr { height: 21px; box-sizing: border-box; }
         .name-col { background: #fdfdfd; font-weight: 900; position: sticky; left: 0; z-index: 9; width: 150px; color: #000; text-align: left; padding-left: 10px; border-right: 4px solid var(--primary); white-space: nowrap; font-size: 0.85rem; letter-spacing: -1px; cursor: pointer; }
         td { border: 1px solid #dfe6e9; text-align: center; padding: 0; font-size: 0.9rem; box-sizing: border-box; }
+        .cell-interactive { cursor: pointer; }
+        .cell-interactive:hover { opacity: 0.7; }
         .received { background: var(--success) !important; color: white !important; font-weight: bold; }
         .need-fix { background: var(--warning) !important; color: white !important; font-weight: bold; }
         .leave { background: #95a5a6 !important; color: white !important; font-weight: bold; }
@@ -45,6 +47,18 @@
         .btn-main { flex: 1; padding: 15px; font-size: 18px; }
         .mode-btn { border: 2px solid transparent; opacity: 0.6; }
         .mode-btn.active { opacity: 1; border-color: #000; transform: scale(1.05); }
+
+        /* 銷錯模式閃爍效果 */
+        @keyframes pulse-red {
+            0% { background-color: #e74c3c; border-color: #c0392b; box-shadow: 0 0 0px #e74c3c; }
+            50% { background-color: #ff0000; border-color: #000000; box-shadow: 0 0 12px #ff0000; }
+            100% { background-color: #e74c3c; border-color: #c0392b; box-shadow: 0 0 0px #e74c3c; }
+        }
+        .btn-delete-active {
+            animation: pulse-red 1s infinite !important;
+            opacity: 1 !important;
+            border: 2px solid #000 !important;
+        }
     </style>
 </head>
 <body>
@@ -96,6 +110,7 @@
                     <button class="btn mode-btn active" id="btn-mode-normal" style="background:var(--success);" onclick="setMode('normal')">🟢 清點(已繳)</button>
                     <button class="btn mode-btn" id="btn-mode-fix" style="background:var(--warning);" onclick="setMode('fix')">🟡 登記未訂正</button>
                     <button class="btn mode-btn" id="btn-mode-leave" style="background:#95a5a6;" onclick="setMode('leave')">🔵 點擊姓名請假</button>
+                    <button class="btn mode-btn" id="btn-mode-delete" style="background:var(--danger);" onclick="setMode('delete')">🔴 銷錯</button>
                 </div>
                 <div class="row-2-right">
                     <span id="stat-info" class="stat-badge">已處理：0/0</span>
@@ -128,10 +143,19 @@ let currentMode = 'normal';
 
 function setMode(mode) {
     currentMode = mode;
-    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.mode-btn').forEach(b => {
+        b.classList.remove('active');
+        b.classList.remove('btn-delete-active');
+    });
+
     if(mode === 'normal') document.getElementById('btn-mode-normal').classList.add('active');
     if(mode === 'fix') document.getElementById('btn-mode-fix').classList.add('active');
     if(mode === 'leave') document.getElementById('btn-mode-leave').classList.add('active');
+    if(mode === 'delete') {
+        const btnDelete = document.getElementById('btn-mode-delete');
+        btnDelete.classList.add('active', 'btn-delete-active');
+    }
+    renderMatrix();
     document.getElementById('scan-input').focus();
 }
 
@@ -268,11 +292,12 @@ function renderMatrix() {
         db.items.forEach((_, iIdx) => {
             const code = `${String.fromCharCode(65 + iIdx)}-${uCode}`;
             const status = db.records[code] || 'none';
-            let cssClass = '';
-            if(status === 'ok') cssClass = 'received';
-            if(status === 'fix') cssClass = 'need-fix';
-            if(status === 'leave') cssClass = 'leave';
-            h += isEmpty ? `<td>-</td>` : `<td id="cell-${code}" class="${cssClass}">${code}</td>`;
+            let cssClass = currentMode === 'delete' ? 'cell-interactive ' : '';
+            if(status === 'ok') cssClass += 'received';
+            if(status === 'fix') cssClass += 'need-fix';
+            if(status === 'leave') cssClass += 'leave';
+            
+            h += isEmpty ? `<td>-</td>` : `<td id="cell-${code}" class="${cssClass}" onclick="handleCellClick('${code}')">${code}</td>`;
         });
         h += `</tr>`;
     });
@@ -290,6 +315,17 @@ function handleUserClick(uIdx) {
     renderMatrix(); save();
 }
 
+function handleCellClick(code) {
+    // 僅在銷錯模式下允許滑鼠點擊刪除紀錄
+    if (currentMode === 'delete') {
+        if (db.records[code]) {
+            delete db.records[code];
+            renderMatrix();
+            save();
+        }
+    }
+}
+
 const scanInput = document.getElementById('scan-input');
 scanInput.addEventListener('input', e => {
     let val = e.target.value.toUpperCase().trim();
@@ -301,6 +337,9 @@ scanInput.addEventListener('input', e => {
         if (cell && !cell.parentNode.classList.contains('empty-row')) {
             if (currentMode === 'normal') db.records[targetCode] = 'ok';
             if (currentMode === 'fix') db.records[targetCode] = 'fix';
+            if (currentMode === 'delete') {
+                delete db.records[targetCode];
+            }
             renderMatrix(); save();
         }
         e.target.value = '';
