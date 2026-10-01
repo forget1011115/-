@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>終極整合簽到系統 - 聲音相容修正版</title>
+    <title>終極整合簽到系統 - 自動歸檔優化版</title>
     <style>
         html, body { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; font-family: "Microsoft JhengHei", sans-serif; background: #f0f2f5; display: flex; flex-direction: column; align-items: center; }
         #main-title { font-size: 40px; margin: 5px 0; font-weight: bold; flex-shrink: 0; color: #1a1a1a; }
@@ -92,10 +92,15 @@
     let users = db.users || [];
     let history = db.history || [];
     let config = db.config || {"title":"條碼簽到系統","note":"點擊卡片標記「請假」(紅色)，掃描進行簽到","deadline":"23:59"};
+    let lastActiveDate = db.lastActiveDate || getTodayStr(); // 紀錄上次運作的日期
     
     let isLocked = false;
     let audioCtx = null;
     let lastPlayedSecond = -1;
+
+    function getTodayStr(d = new Date()) {
+        return d.toLocaleDateString('zh-TW');
+    }
 
     function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
     
@@ -111,7 +116,7 @@
     }
 
     function saveAll() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({users, history, config}));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({users, history, config, lastActiveDate}));
     }
 
     function render() {
@@ -129,10 +134,49 @@
         }).join('');
     }
 
+    // 自動跨日結算邏輯
+    function checkCrossDay() {
+        const todayStr = getTodayStr();
+        if (lastActiveDate !== todayStr) {
+            // 發現已經跨日，自動結算「昨天」的紀錄
+            const missing = users.filter(u => !u.rank && u.status !== 'leave').map(u => u.name);
+            const leaves = users.filter(u => u.status === 'leave').map(u => u.name);
+            
+            // 只有當昨天有人簽到或有請假時才自動紀錄（避免完全無活動時寫入空紀錄）
+            if (users.some(u => u.rank || u.status === 'leave')) {
+                const dateParts = lastActiveDate.split('/');
+                let monthStr = "";
+                if(dateParts.length >= 2) {
+                    monthStr = dateParts[0] + "-" + dateParts[1].padStart(2, '0');
+                } else {
+                    const yesterday = new Date();
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    monthStr = yesterday.getFullYear() + "-" + (yesterday.getMonth()+1).toString().padStart(2, '0');
+                }
+
+                history.push({
+                    month: monthStr,
+                    dateStr: lastActiveDate,
+                    missing: missing,
+                    leaves: leaves
+                });
+            }
+
+            // 重置人員狀態並更新 Last Active Date
+            users.forEach(u => { u.rank = null; u.status = null; });
+            lastActiveDate = todayStr;
+            saveAll();
+            render();
+            document.getElementById('msg').innerText = "🌙 已自動完成跨日結算與重置！";
+        }
+    }
+
     function updateClock() {
         const now = new Date();
         document.getElementById('clock').innerText = now.toLocaleTimeString('zh-TW', { hour12: false });
         document.getElementById('date').innerText = now.toLocaleDateString('zh-TW') + " 星期" + "日一二三四五六"[now.getDay()];
+
+        checkCrossDay(); // 每秒檢查一次是否跨日
 
         if (config.deadline) {
             const [h, m] = config.deadline.split(':').map(Number);
@@ -204,6 +248,7 @@
                 users = data.users || data.v18_users || [];
                 config = data.config || data.v18_config || config;
                 history = data.history || data.v18_history || [];
+                lastActiveDate = data.lastActiveDate || getTodayStr();
                 saveAll();
                 alert("資料匯入成功！");
                 location.reload();
@@ -253,18 +298,84 @@
         document.getElementById('report-result-area').innerHTML = html + "</table>"; 
     }
 
+    // 結算與重置 (加入防呆與重複覆蓋/合併邏輯)
     function saveAndReset() { 
-        if(!confirm("確定要結算今日並重置簽到狀態嗎？")) return; 
-        const now = new Date(); 
-        history.push({ 
-            month: now.getFullYear() + "-" + (now.getMonth()+1).toString().padStart(2, '0'), 
-            dateStr: now.toLocaleDateString('zh-TW'), 
-            missing: users.filter(u => !u.rank && u.status !== 'leave').map(u => u.name),
-            leaves: users.filter(u => u.status === 'leave').map(u => u.name)
-        }); 
+        const now = new Date();
+        const todayStr = getTodayStr(now);
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = getTodayStr(yesterday);
+
+        // 檢查今天是否已有紀錄
+        const todayIndex = history.findIndex(h => h.dateStr === todayStr);
+
+        let targetDateStr = todayStr;
+        let targetMonthStr = now.getFullYear() + "-" + (now.getMonth()+1).toString().padStart(2, '0');
+        let action = "new"; // "new", "overwrite", "merge"
+
+        if (todayIndex !== -1) {
+            const choice = prompt(
+                `⚠️ 注意：今日 (${todayStr}) 已經有結算紀錄！\n\n` +
+                `請選擇處理方式：\n` +
+                `1. 覆蓋今天的舊紀錄 (輸入 1)\n` +
+                `2. 與今天的舊紀錄合併 (輸入 2)\n` +
+                `3. 將這筆資料補結算為「昨天 (${yesterdayStr})」(輸入 3)\n\n` +
+                `按「取消」放棄結算。`, 
+                "1"
+            );
+
+            if (choice === "1") {
+                action = "overwrite";
+            } else if (choice === "2") {
+                action = "merge";
+            } else if (choice === "3") {
+                targetDateStr = yesterdayStr;
+                targetMonthStr = yesterday.getFullYear() + "-" + (yesterday.getMonth()+1).toString().padStart(2, '0');
+                action = "yesterday";
+            } else {
+                return; // 使用者按取消
+            }
+        } else {
+            if(!confirm(`確定要結算今天 (${todayStr}) 並重置簽到狀態嗎？`)) return;
+        }
+
+        const currentMissing = users.filter(u => !u.rank && u.status !== 'leave').map(u => u.name);
+        const currentLeaves = users.filter(u => u.status === 'leave').map(u => u.name);
+
+        if (action === "overwrite") {
+            history[todayIndex] = {
+                month: targetMonthStr,
+                dateStr: targetDateStr,
+                missing: currentMissing,
+                leaves: currentLeaves
+            };
+        } else if (action === "merge") {
+            const oldRecord = history[todayIndex];
+            // 合併請假者 (取聯集)
+            const mergedLeaves = Array.from(new Set([...(oldRecord.leaves || []), ...currentLeaves]));
+            // 合併缺席者 (必須兩次都缺席才算缺席)
+            const mergedMissing = currentMissing.filter(name => (oldRecord.missing || []).includes(name));
+
+            history[todayIndex] = {
+                month: targetMonthStr,
+                dateStr: targetDateStr,
+                missing: mergedMissing,
+                leaves: mergedLeaves
+            };
+        } else {
+            // 新增 (今天或昨天)
+            history.push({ 
+                month: targetMonthStr, 
+                dateStr: targetDateStr, 
+                missing: currentMissing,
+                leaves: currentLeaves
+            }); 
+        }
+
         users.forEach(u => { u.rank = null; u.status = null; }); 
+        lastActiveDate = todayStr;
         saveAll(); render(); 
-        document.getElementById('msg').innerText = "🔄 已完成今日結算與重置！";
+        document.getElementById('msg').innerText = `🔄 已完成 ${targetDateStr} 的結算與重置！`;
     }
 
     function exportVerticalExcel() { 
@@ -288,7 +399,7 @@
     }
 
     function backupSettings() { 
-        const blob = new Blob([JSON.stringify({users, config, history}, null, 2)], {type:'text/plain'}); 
+        const blob = new Blob([JSON.stringify({users, config, history, lastActiveDate}, null, 2)], {type:'text/plain'}); 
         const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`簽到系統備份_${new Date().toLocaleDateString()}.txt`; a.click(); 
     }
 
