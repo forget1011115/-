@@ -257,6 +257,26 @@ function startTracking() {
     renderMatrix(); save();
 }
 
+// 輔助函式：當掃描某項作業時，自動把頂部對應的核取方塊 (checkbox) 勾選起來
+function autoCheckItemByLetter(letter) {
+    const itemIndex = letter.charCodeAt(0) - 65;
+    const checkbox = document.querySelector(`.target-item[value="${itemIndex}"]`);
+    if (checkbox && !checkbox.checked) {
+        checkbox.checked = true;
+    }
+}
+
+// 輔助函式：檢查是否有「已有刷讀紀錄」但頂部「卻沒勾選」的作業項目，若有則自動補勾
+function autoCheckActiveItems() {
+    db.items.forEach((itemName, iIdx) => {
+        const letter = String.fromCharCode(65 + iIdx);
+        const hasRecord = Object.keys(db.records).some(code => code.startsWith(`${letter}-`));
+        if (hasRecord) {
+            autoCheckItemByLetter(letter);
+        }
+    });
+}
+
 // 將勾選項目的所有學生狀態一鍵設定為「已繳 (ok)」
 function markCheckedItemsAsAllOk() {
     const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
@@ -309,8 +329,10 @@ function handleUserClick(uIdx) {
     if (currentMode !== 'leave') return;
     const uCode = (uIdx + 1).toString().padStart(3, '0');
     db.items.forEach((_, iIdx) => {
-        const code = `${String.fromCharCode(65 + iIdx)}-${uCode}`;
+        const letter = String.fromCharCode(65 + iIdx);
+        const code = `${letter}-${uCode}`;
         db.records[code] = 'leave';
+        autoCheckItemByLetter(letter); // 請假時亦自動反勾選該項作業
     });
     renderMatrix(); save();
 }
@@ -335,10 +357,15 @@ scanInput.addEventListener('input', e => {
         const targetCode = cleanVal.substring(0, 5);
         const cell = document.getElementById(`cell-${targetCode}`);
         if (cell && !cell.parentNode.classList.contains('empty-row')) {
+            const letter = targetCode.charAt(0);
             if (currentMode === 'normal') db.records[targetCode] = 'ok';
             if (currentMode === 'fix') db.records[targetCode] = 'fix';
             if (currentMode === 'delete') {
                 delete db.records[targetCode];
+            }
+            // 💡 防呆重點：只要有刷讀紀錄，自動把頂部對應的作業勾選起來
+            if (currentMode !== 'delete') {
+                autoCheckItemByLetter(letter);
             }
             renderMatrix(); save();
         }
@@ -356,6 +383,9 @@ scanInput.addEventListener('blur', () => {
 });
 
 function showMissingReport() {
+    // 💡 防呆重點：統計前先自動勾選所有「已有清點紀錄」的項目
+    autoCheckActiveItems();
+
     const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
     if (checkedTargets.length === 0) return alert("⚠️ 請先在最上方勾選本次要統計的項目！");
     let reportHtml = ""; let found = false;
@@ -387,12 +417,24 @@ function updateStats() {
 }
 
 function backToSetup() { document.getElementById('setup-panel').classList.remove('hidden'); document.getElementById('tracking-panel').classList.add('hidden'); }
-function clearRecordsOnly() { if(confirm("確定歸零清點紀錄？")) { db.records = {}; renderMatrix(); save(); } }
+
+// 升級後的歸零功能：連同頂部的作業核取方塊一起取消勾選
+function clearRecordsOnly() { 
+    if(confirm("確定歸零清點紀錄並取消所有作業選項勾選？")) { 
+        db.records = {}; 
+        document.querySelectorAll('.target-item').forEach(el => el.checked = false);
+        renderMatrix(); 
+        save(); 
+    } 
+}
 
 function syncToGAS() {
     const url = document.getElementById('gas-url-input').value.trim();
     if (!url) return alert("❌ 請先點選「修改設定」，填入 GAS Web App URL！");
-        
+    
+    // 💡 防呆重點：同步前先自動把已有紀錄的作業項目勾選起來
+    autoCheckActiveItems();
+
     const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
     if (checkedTargets.length === 0) return alert("⚠️ 請先勾選今天有派出的作業項目！");
 
