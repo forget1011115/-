@@ -138,7 +138,9 @@
 
 <script>
 const storageKey = 'inv_matrix_v2026_clean_final_v2'; 
-let db = { title: "", items: [], users: [], records: {}, gasUrl: "" };
+const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbwdPn22dQ_9fmrrqwcNj8Rxq0UzGXgQACadPJIFlU9-LpyEdtJgdpBJl0yy9ZFBGJE/exec";
+
+let db = { title: "", items: [], users: [], records: {}, gasUrl: DEFAULT_GAS_URL };
 let currentMode = 'normal';
 
 function setMode(mode) {
@@ -182,7 +184,7 @@ function importConfig(event) {
                     items: imported.items, 
                     users: imported.users, 
                     records: imported.records || {},
-                    gasUrl: imported.gasUrl || ""
+                    gasUrl: imported.gasUrl || DEFAULT_GAS_URL
                 };
                 save(); 
                 alert("還原成功！"); 
@@ -199,7 +201,8 @@ function exportConfig() {
 }
 
 function save() { 
-    db.gasUrl = document.getElementById('gas-url-input').value.trim();
+    const inputUrl = document.getElementById('gas-url-input').value.trim();
+    db.gasUrl = inputUrl || db.gasUrl || DEFAULT_GAS_URL;
     localStorage.setItem(storageKey, JSON.stringify(db)); 
 }
 
@@ -208,13 +211,16 @@ function load() {
     if (s) {
         try {
             db = JSON.parse(s);
-            document.getElementById('title-input').value = db.title || "";
-            document.getElementById('items-input').value = (db.items || []).join('\n');
-            document.getElementById('users-input').value = (db.users || []).join('\n');
-            document.getElementById('gas-url-input').value = db.gasUrl || "";
-            if(db.users && db.users.length) startTracking();
         } catch(e) {}
     }
+    if (!db.gasUrl) db.gasUrl = DEFAULT_GAS_URL;
+    
+    document.getElementById('title-input').value = db.title || "";
+    document.getElementById('items-input').value = (db.items || []).join('\n');
+    document.getElementById('users-input').value = (db.users || []).join('\n');
+    document.getElementById('gas-url-input').value = db.gasUrl;
+    
+    if(db.users && db.users.length) startTracking();
 }
 
 function initAndExportLabels() {
@@ -252,318 +258,4 @@ function startTracking() {
     // 預設全部「不勾選」
     const checkerArea = document.getElementById('item-checker-inline'); checkerArea.innerHTML = '';
     db.items.forEach((item, idx) => {
-        checkerArea.innerHTML += `<label><input type="checkbox" class="target-item" value="${idx}"> ${item}</label>`;
-    });
-    renderMatrix(); save();
-}
-
-// 輔助函式：當掃描某項作業時，自動把頂部對應的核取方塊 (checkbox) 勾選起來
-function autoCheckItemByLetter(letter) {
-    const itemIndex = letter.charCodeAt(0) - 65;
-    const checkbox = document.querySelector(`.target-item[value="${itemIndex}"]`);
-    if (checkbox && !checkbox.checked) {
-        checkbox.checked = true;
-    }
-}
-
-// 輔助函式：檢查是否有「已有刷讀紀錄」但頂部「卻沒勾選」的作業項目，若有則自動補勾
-function autoCheckActiveItems() {
-    db.items.forEach((itemName, iIdx) => {
-        const letter = String.fromCharCode(65 + iIdx);
-        const hasRecord = Object.keys(db.records).some(code => code.startsWith(`${letter}-`));
-        if (hasRecord) {
-            autoCheckItemByLetter(letter);
-        }
-    });
-}
-
-// 將勾選項目的所有學生狀態一鍵設定為「已繳 (ok)」
-function markCheckedItemsAsAllOk() {
-    const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
-    if (checkedTargets.length === 0) {
-        return alert("⚠️ 請先在最上方勾選要設定『勾選項全繳』的作業項目！");
-    }
-
-    checkedTargets.forEach(iIdx => {
-        const letter = String.fromCharCode(65 + iIdx);
-        db.users.forEach((u, uIdx) => {
-            if (u.trim() && u.trim() !== "空" && u.trim() !== "從缺") {
-                const uCode = (uIdx + 1).toString().padStart(3, '0');
-                const code = `${letter}-${uCode}`;
-                db.records[code] = 'ok';
-            }
-        });
-    });
-
-    renderMatrix(); 
-    save();
-    syncToGASSilent(); // 觸發 10 秒靜默同步
-}
-
-function renderMatrix() {
-    const container = document.getElementById('matrix-html'); if(!container) return;
-    let h = `<table><thead><tr><th class="name-col">姓名</th>`;
-    db.items.forEach(it => h += `<th>${it}</th>`);
-    h += `</tr></thead><tbody>`; 
-    db.users.forEach((u, uIdx) => {
-        const isEmpty = !u.trim() || u.trim() === "空" || u.trim() === "從缺";
-        const uCode = (uIdx + 1).toString().padStart(3, '0');
-        h += `<tr class="${isEmpty ? 'empty-row' : ''}">`;
-        h += `<td class="name-col" onclick="handleUserClick(${uIdx})">${isEmpty ? '('+uCode+' 空)' : u}</td>`;
-        db.items.forEach((_, iIdx) => {
-            const code = `${String.fromCharCode(65 + iIdx)}-${uCode}`;
-            const status = db.records[code] || 'none';
-            let cssClass = currentMode === 'delete' ? 'cell-interactive ' : '';
-            if(status === 'ok') cssClass += 'received';
-            if(status === 'fix') cssClass += 'need-fix';
-            if(status === 'leave') cssClass += 'leave';
-            
-            h += isEmpty ? `<td>-</td>` : `<td id="cell-${code}" class="${cssClass}" onclick="handleCellClick('${code}')">${code}</td>`;
-        });
-        h += `</tr>`;
-    });
-    container.innerHTML = h + `</tbody></table>`; updateStats();
-    setTimeout(() => document.getElementById('scan-input').focus(), 150);
-}
-
-function handleUserClick(uIdx) {
-    if (currentMode !== 'leave') return;
-    const uCode = (uIdx + 1).toString().padStart(3, '0');
-    db.items.forEach((_, iIdx) => {
-        const letter = String.fromCharCode(65 + iIdx);
-        const code = `${letter}-${uCode}`;
-        db.records[code] = 'leave';
-        autoCheckItemByLetter(letter); // 請假時亦自動反勾選該項作業
-    });
-    renderMatrix(); 
-    save();
-    syncToGASSilent(); // 觸發 10 秒靜默同步
-}
-
-function handleCellClick(code) {
-    // 僅在銷錯模式下允許滑鼠點擊刪除紀錄
-    if (currentMode === 'delete') {
-        if (db.records[code]) {
-            delete db.records[code];
-            renderMatrix();
-            save();
-            syncToGASSilent(); // 觸發 10 秒靜默同步
-        }
-    }
-}
-
-const scanInput = document.getElementById('scan-input');
-scanInput.addEventListener('input', e => {
-    let val = e.target.value.toUpperCase().trim();
-    let cleanVal = val.replace(/\*/g, '');
-    
-    if (cleanVal.length >= 5) {
-        const targetCode = cleanVal.substring(0, 5);
-        const cell = document.getElementById(`cell-${targetCode}`);
-        if (cell && !cell.parentNode.classList.contains('empty-row')) {
-            const letter = targetCode.charAt(0);
-            if (currentMode === 'normal') db.records[targetCode] = 'ok';
-            if (currentMode === 'fix') db.records[targetCode] = 'fix';
-            if (currentMode === 'delete') {
-                delete db.records[targetCode];
-            }
-            // 防呆重點：只要有刷讀紀錄，自動把頂部對應的作業勾選起來
-            if (currentMode !== 'delete') {
-                autoCheckItemByLetter(letter);
-            }
-            renderMatrix(); 
-            save();
-            
-            // 🌟 核心機制：連續刷條碼時 0 秒卡頓，最後刷完靜止 10 秒後自動發送
-            syncToGASSilent();
-        }
-        e.target.value = '';
-    }
-});
-
-scanInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.value = ''; } });
-scanInput.addEventListener('blur', () => {
-    const isTrackingActive = !document.getElementById('tracking-panel').classList.contains('hidden');
-    const isModalActive = !document.getElementById('modal-overlay').classList.contains('hidden');
-    if (isTrackingActive && !isModalActive) {
-        setTimeout(() => scanInput.focus(), 100);
-    }
-});
-
-function showMissingReport() {
-    autoCheckActiveItems();
-
-    const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
-    if (checkedTargets.length === 0) return alert("⚠️ 請先在最上方勾選本次要統計的項目！");
-    let reportHtml = ""; let found = false;
-    checkedTargets.forEach(itemIdx => {
-        const itemName = db.items[itemIdx]; const letter = String.fromCharCode(65 + itemIdx); let missing = [];
-        db.users.forEach((u, uIdx) => {
-            if (u.trim() && u.trim() !== "空" && u.trim() !== "從缺") {
-                const code = `${letter}-${(uIdx+1).toString().padStart(3,'0')}`; 
-                const status = db.records[code];
-                if (!status || status === 'none') missing.push(`${u} (未繳)`);
-                if (status === 'fix') missing.push(`${u} (未訂正)`);
-            }
-        });
-        if (missing.length > 0) { found = true; reportHtml += `<div class="missing-group"><span class="missing-item-title">📦 ${itemName}</span><div class="missing-names">${missing.join('、')}</div></div>`; }
-    });
-    document.getElementById('modal-body').innerHTML = found ? reportHtml : "<div style='text-align:center; color:green; font-size:20px; padding:20px;'>✅ 本次統計項目已全數清點完畢！</div>";
-    document.getElementById('modal-overlay').classList.remove('hidden');
-}
-
-function closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); scanInput.focus(); }
-
-function updateStats() {
-    let total = 0; if(!db.users) return;
-    db.users.forEach(u => { if(u.trim() && u.trim() !== "空" && u.trim() !== "從缺") total += db.items.length; });
-    const statElem = document.getElementById('stat-info');
-    let count = 0;
-    Object.values(db.records).forEach(v => { if(v === 'ok' || v === 'fix') count++; });
-    if (statElem) { statElem.innerText = `已處理：${count}/${total}`; }
-}
-
-function backToSetup() { document.getElementById('setup-panel').classList.remove('hidden'); document.getElementById('tracking-panel').classList.add('hidden'); }
-
-function clearRecordsOnly() { 
-    if(confirm("確定歸零清點紀錄並取消所有作業選項勾選？")) { 
-        db.records = {}; 
-        document.querySelectorAll('.target-item').forEach(el => el.checked = false);
-        renderMatrix(); 
-        save(); 
-        syncToGASSilent(); // 觸發 10 秒靜默同步
-    } 
-}
-
-// 🌟 10 秒防手震背景靜默同步 API (Debounce 10000ms)
-let syncTimer = null;
-
-function syncToGASSilent() {
-    // 若 10 秒內有任何新的銷帳或操作動作，重置計時器
-    if (syncTimer) clearTimeout(syncTimer);
-
-    // 靜止 10 秒後，才一次性把整班最新狀態打包發送給 Google
-    syncTimer = setTimeout(() => {
-        const url = document.getElementById('gas-url-input').value.trim();
-        if (!url) return;
-        
-        autoCheckActiveItems();
-        const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
-        if (checkedTargets.length === 0) return;
-
-        const now = new Date();
-        const yyyy = now.getFullYear();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const todayFormatted = `${yyyy}/${mm}/${dd}`;
-
-        let payload = {
-            action: "syncHomework",
-            date: todayFormatted,
-            items: []
-        };
-
-        checkedTargets.forEach(iIdx => {
-            const itemName = db.items[iIdx];
-            const letter = String.fromCharCode(65 + iIdx);
-            let records = {};
-
-            db.users.forEach((u, uIdx) => {
-                if (u.trim() && u.trim() !== "空" && u.trim() !== "從缺") {
-                    const uCode = (uIdx + 1).toString().padStart(3, '0');
-                    const code = `${letter}-${uCode}`;
-                    const st = db.records[code];
-                    let textStatus = "未繳交";
-                    if (st === 'ok') textStatus = "已繳";
-                    if (st === 'fix') textStatus = "未訂正";
-                    if (st === 'leave') textStatus = "請假";
-                    records[uCode] = textStatus;
-                }
-            });
-            payload.items.push({ itemName: itemName, records: records });
-        });
-
-        console.log("⏰ 網頁靜止 10 秒，執行背景自動同步至 Google 試算表...");
-        fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify(payload),
-            redirect: "follow"
-        }).catch(err => console.error("背景自動同步失敗:", err));
-    }, 10000); // 10000毫秒 = 10秒
-}
-
-// 原本的手動同步按鈕 (維持手動點擊時會跳出彈窗告知結果)
-function syncToGAS() {
-    const url = document.getElementById('gas-url-input').value.trim();
-    if (!url) return alert("❌ 請先點選「修改設定」，填入 GAS Web App URL！");
-    
-    autoCheckActiveItems();
-
-    const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
-    if (checkedTargets.length === 0) return alert("⚠️ 請先勾選今天有派出的作業項目！");
-
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const dd = String(now.getDate()).padStart(2, '0');
-    const todayFormatted = `${yyyy}/${mm}/${dd}`;
-
-    let payload = {
-        action: "syncHomework",
-        date: todayFormatted,
-        items: []
-    };
-
-    checkedTargets.forEach(iIdx => {
-        const itemName = db.items[iIdx];
-        const letter = String.fromCharCode(65 + iIdx);
-        let records = {};
-
-        db.users.forEach((u, uIdx) => {
-            if (u.trim() && u.trim() !== "空" && u.trim() !== "從缺") {
-                const uCode = (uIdx + 1).toString().padStart(3, '0');
-                const code = `${letter}-${uCode}`;
-                const st = db.records[code];
-                let textStatus = "未繳交";
-                if (st === 'ok') textStatus = "已繳";
-                if (st === 'fix') textStatus = "未訂正";
-                if (st === 'leave') textStatus = "請假";
-                records[uCode] = textStatus;
-            }
-        });
-        payload.items.push({ itemName: itemName, records: records });
-    });
-
-    fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload),
-        redirect: "follow"
-    })
-    .then(response => response.text())
-    .then(text => {
-        try {
-            const data = JSON.parse(text);
-            if (data.warning === "HOLIDAY_WARNING" || data.isHoliday === true) {
-                alert("⚠️ 【連假靜音提醒】\n目前『每日自動推播』處於關閉狀態！\n若已收假/開學，請記得回到試算表選單點擊『🟢 開啟每日自動推播』。");
-            } else {
-                alert("✅ 資料已成功發送至 Google 試算表！");
-            }
-        } catch (e) {
-            console.warn("後端回傳非標準 JSON 格式，內容為：", text);
-            alert("✅ 資料已成功更新至試算表！");
-        }
-    })
-    .catch(err => {
-        console.error("同步錯誤:", err);
-        alert("❌ 同步失敗：" + err);
-    });
-}
-
-function reset() { if(confirm("徹底重設？")){ localStorage.removeItem(storageKey); location.reload(); } }
-window.onload = load;
-
-window.addEventListener('beforeunload', function (e) {
-    e.preventDefault();
-    e.returnValue = '
+        checkerArea.innerHTML += `<label
