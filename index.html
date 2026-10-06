@@ -297,6 +297,7 @@ function markCheckedItemsAsAllOk() {
 
     renderMatrix(); 
     save();
+    syncToGASSilent(); // 觸發 10 秒靜默同步
 }
 
 function renderMatrix() {
@@ -334,7 +335,9 @@ function handleUserClick(uIdx) {
         db.records[code] = 'leave';
         autoCheckItemByLetter(letter); // 請假時亦自動反勾選該項作業
     });
-    renderMatrix(); save();
+    renderMatrix(); 
+    save();
+    syncToGASSilent(); // 觸發 10 秒靜默同步
 }
 
 function handleCellClick(code) {
@@ -344,6 +347,7 @@ function handleCellClick(code) {
             delete db.records[code];
             renderMatrix();
             save();
+            syncToGASSilent(); // 觸發 10 秒靜默同步
         }
     }
 }
@@ -363,11 +367,15 @@ scanInput.addEventListener('input', e => {
             if (currentMode === 'delete') {
                 delete db.records[targetCode];
             }
-            // 💡 防呆重點：只要有刷讀紀錄，自動把頂部對應的作業勾選起來
+            // 防呆重點：只要有刷讀紀錄，自動把頂部對應的作業勾選起來
             if (currentMode !== 'delete') {
                 autoCheckItemByLetter(letter);
             }
-            renderMatrix(); save();
+            renderMatrix(); 
+            save();
+            
+            // 🌟 核心機制：連續刷條碼時 0 秒卡頓，最後刷完靜止 10 秒後自動發送
+            syncToGASSilent();
         }
         e.target.value = '';
     }
@@ -383,7 +391,6 @@ scanInput.addEventListener('blur', () => {
 });
 
 function showMissingReport() {
-    // 💡 防呆重點：統計前先自動勾選所有「已有清點紀錄」的項目
     autoCheckActiveItems();
 
     const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
@@ -418,21 +425,79 @@ function updateStats() {
 
 function backToSetup() { document.getElementById('setup-panel').classList.remove('hidden'); document.getElementById('tracking-panel').classList.add('hidden'); }
 
-// 升級後的歸零功能：連同頂部的作業核取方塊一起取消勾選
 function clearRecordsOnly() { 
     if(confirm("確定歸零清點紀錄並取消所有作業選項勾選？")) { 
         db.records = {}; 
         document.querySelectorAll('.target-item').forEach(el => el.checked = false);
         renderMatrix(); 
         save(); 
+        syncToGASSilent(); // 觸發 10 秒靜默同步
     } 
 }
 
+// 🌟 10 秒防手震背景靜默同步 API (Debounce 10000ms)
+let syncTimer = null;
+
+function syncToGASSilent() {
+    // 若 10 秒內有任何新的銷帳或操作動作，重置計時器
+    if (syncTimer) clearTimeout(syncTimer);
+
+    // 靜止 10 秒後，才一次性把整班最新狀態打包發送給 Google
+    syncTimer = setTimeout(() => {
+        const url = document.getElementById('gas-url-input').value.trim();
+        if (!url) return;
+        
+        autoCheckActiveItems();
+        const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
+        if (checkedTargets.length === 0) return;
+
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const todayFormatted = `${yyyy}/${mm}/${dd}`;
+
+        let payload = {
+            action: "syncHomework",
+            date: todayFormatted,
+            items: []
+        };
+
+        checkedTargets.forEach(iIdx => {
+            const itemName = db.items[iIdx];
+            const letter = String.fromCharCode(65 + iIdx);
+            let records = {};
+
+            db.users.forEach((u, uIdx) => {
+                if (u.trim() && u.trim() !== "空" && u.trim() !== "從缺") {
+                    const uCode = (uIdx + 1).toString().padStart(3, '0');
+                    const code = `${letter}-${uCode}`;
+                    const st = db.records[code];
+                    let textStatus = "未繳交";
+                    if (st === 'ok') textStatus = "已繳";
+                    if (st === 'fix') textStatus = "未訂正";
+                    if (st === 'leave') textStatus = "請假";
+                    records[uCode] = textStatus;
+                }
+            });
+            payload.items.push({ itemName: itemName, records: records });
+        });
+
+        console.log("⏰ 網頁靜止 10 秒，執行背景自動同步至 Google 試算表...");
+        fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify(payload),
+            redirect: "follow"
+        }).catch(err => console.error("背景自動同步失敗:", err));
+    }, 10000); // 10000毫秒 = 10秒
+}
+
+// 原本的手動同步按鈕 (維持手動點擊時會跳出彈窗告知結果)
 function syncToGAS() {
     const url = document.getElementById('gas-url-input').value.trim();
     if (!url) return alert("❌ 請先點選「修改設定」，填入 GAS Web App URL！");
     
-    // 💡 防呆重點：同步前先自動把已有紀錄的作業項目勾選起來
     autoCheckActiveItems();
 
     const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
@@ -501,30 +566,4 @@ window.onload = load;
 
 window.addEventListener('beforeunload', function (e) {
     e.preventDefault();
-    e.returnValue = '請確認是否已點擊「同步至試算表」！未同步的資料將不會更新至家長 LINE。';
-});
-
-(function initAutoSyncAt1530() {
-    let hasSyncedToday = false;
-    setInterval(() => {
-        const now = new Date();
-        const hours = now.getHours();
-        const minutes = now.getMinutes();
-
-        if (hours === 0 && minutes === 0) {
-            hasSyncedToday = false;
-        }
-
-        if (hours === 15 && minutes >= 30 && !hasSyncedToday) {
-            if (db.records && Object.keys(db.records).length > 0) {
-                console.log("⏰ 15:30 時間到達，執行背景自動同步...");
-                syncToGAS();
-                hasSyncedToday = true;
-                alert("⏰【系統通知】已於 15:30 自動將今日作業清點資料同步至 Google 試算表！");
-            }
-        }
-    }, 30000);
-})();
-</script>
-</body>
-</html>
+    e.returnValue = '
