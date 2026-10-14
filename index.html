@@ -26,7 +26,7 @@
         .stat-badge { font-size: 16px; font-weight: bold; color: #2c3e50; background: #ecf0f1; padding: 6px 12px; border-radius: 6px; border: 1px solid #bdc3c7; }
         .header-row-2 { display: flex; justify-content: space-between; align-items: center; gap: 15px; height: 45px; margin-top: 6px; }
         .row-2-left { display: flex; align-items: center; gap: 10px; }
-        #scan-input { width: 160px; padding: 6px 10px; font-size: 18px; border: 3px solid var(--primary); border-radius: 8px; text-align: center; box-sizing: border-box; background: #fffde7; outline: none; }
+        #scan-input { width: 160px; padding: 6px 10px; font-size: 18px; border: 3px solid var(--primary); border-radius: 8px; text-align: center; box-sizing: border-box; background: #fffde7; outline: none; ime-mode: disabled; }
         .row-2-right { display: flex; gap: 8px; align-items: center; }
         .matrix-container { flex: 1; overflow: auto; background: white; border: 2px solid #ddd; margin-top: 10px; min-height: 0; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -108,7 +108,7 @@
                         
             <div class="header-row-2">
                 <div class="row-2-left">
-                    <input type="text" id="scan-input" placeholder="掃描..." autocomplete="off">
+                    <input type="text" id="scan-input" placeholder="掃描..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="latin" lang="en">
                     <button class="btn mode-btn active" id="btn-mode-normal" style="background:var(--success);" onclick="setMode('normal')">🟢 清點(已繳)</button>
                     <button class="btn mode-btn" id="btn-mode-fix" style="background:var(--warning);" onclick="setMode('fix')">🟡 登記未訂正</button>
                     <button class="btn mode-btn" id="btn-mode-leave" style="background:#95a5a6;" onclick="setMode('leave')">🔵 點擊姓名請假</button>
@@ -175,7 +175,6 @@ function onDateChanged() {
     currentDateStr = getDatePickerValue();
     updateHistoryVisualState();
 
-    // 如果本地 historyRecords 裡沒有這一天的資料，嘗試向 GAS 雲端撈取
     if (!db.historyRecords[currentDateStr] || Object.keys(db.historyRecords[currentDateStr]).length === 0) {
         fetchHistoryDataFromGAS(currentDateStr);
     } else {
@@ -196,13 +195,14 @@ function fetchHistoryDataFromGAS(dateStr) {
     .then(resData => {
         if (resData.status === "success" && resData.itemsData) {
             let fetchedRecs = {};
-            // 將 GAS 回傳的 itemsData (格式: { "生甲": { "001": "ok", ... } }) 轉回本地代號格式 (A-001: "ok")
+            // 🌟 修正：精準解析雲端回傳的 itemsData 格式並補齊 3 位數座號
             db.items.forEach((itemName, iIdx) => {
                 const letter = String.fromCharCode(65 + iIdx);
                 if (resData.itemsData[itemName]) {
                     const itemRecs = resData.itemsData[itemName];
                     Object.keys(itemRecs).forEach(uCode => {
-                        const code = `${letter}-${uCode}`;
+                        const cleanUCode = uCode.toString().padStart(3, '0');
+                        const code = `${letter}-${cleanUCode}`;
                         fetchedRecs[code] = itemRecs[uCode];
                     });
                 }
@@ -281,7 +281,7 @@ function importConfig(event) {
             const imported = JSON.parse(e.target.result);
             if (Array.isArray(imported.items) && Array.isArray(imported.users)) {
                 db = { 
-                    title: imported.title || "物品清點", 
+                    title: imported.title || "物品清單", 
                     items: imported.items, 
                     users: imported.users, 
                     historyRecords: imported.historyRecords || imported.records || {},
@@ -673,28 +673,4 @@ function syncToGAS() {
         try {
             const data = JSON.parse(text);
             if (data.warning === "HOLIDAY_WARNING" || data.isHoliday === true) {
-                alert(`⚠️ 【連假靜音提醒】\n目前同步日期：${currentDateStr}\n若已收假，請記得回到試算表選單開啟自動推播。`);
-            } else {
-                alert(`✅ 【${currentDateStr}】資料已成功發送至 Google 試算表！`);
-            }
-        } catch (e) {
-            alert(`✅ 【${currentDateStr}】資料已成功更新至試算表！`);
-        }
-    })
-    .catch(err => {
-        console.error("同步錯誤:", err);
-        alert("❌ 同步失敗：" + err);
-    });
-}
-
-function reset() { 
-    if(confirm("徹底重設？")){ 
-        localStorage.removeItem(storageKey); 
-        location.reload(); 
-    } 
-}
-
-window.onload = load;
-</script>
-</body>
-</html>
+                alert(`⚠️ 【連假靜音提醒】\n目前同步日期：${currentDateStr}\n若已收假，請記得回到試算表選單開啟自動推播。
