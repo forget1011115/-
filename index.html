@@ -87,7 +87,7 @@
         </div>
         <div class="setup-actions">
             <button class="btn btn-main" style="background:var(--primary);" onclick="initAndExportLabels()">💾 儲存並導出標籤檔</button>
-            <button class="btn btn-main" style="background:var(--info);" onclick="startTracking()">🚀 直接進入/返回清單頁面</button>
+            <button class="btn btn-main" style="background:var(--info);" onclick="startTracking()">🚀 直接進入/返回清點頁面</button>
         </div>
     </div>
 
@@ -120,7 +120,7 @@
                     <span id="stat-info" class="stat-badge">已處理：0/0</span>
                     <button class="btn" style="background:#27ae60;" onclick="markCheckedItemsAsAllOk()">⚡ 勾選項全繳</button>
                     <button class="btn" style="background:var(--danger); font-size:16px; padding: 8px 16px;" onclick="showMissingReport()">🏁 清點完成</button>
-                    <button class="btn" style="background:#7f8c8d;" onclick="clearRecordsOnly()">🔄 歸零清點</button>
+                    <button class="btn" style="background:#7f8c8d;" onclick="clearRecordsOnly()">🔄 歸零清單</button>
                     <button class="btn" style="background:var(--warning);" onclick="backToSetup()">✏️ 修改設定</button>
                 </div>
             </div>
@@ -291,6 +291,7 @@ function getCleanInputs() {
     return { items, users };
 }
 
+// 🌟 完美相容新舊格式的匯入還原邏輯
 function importConfig(event) {
     const file = event.target.files[0]; if (!file) return;
     const reader = new FileReader();
@@ -298,15 +299,21 @@ function importConfig(event) {
         try {
             const imported = JSON.parse(e.target.result);
             if (Array.isArray(imported.items) && Array.isArray(imported.users)) {
+                let mergedHistory = imported.historyRecords || {};
+                // 如果備份檔是舊版單一 records 格式，自動轉入當天歷史紀錄
+                if (imported.records && Object.keys(imported.records).length > 0) {
+                    mergedHistory[getTodayFormatted()] = imported.records;
+                }
+
                 db = { 
                     title: imported.title || "物品清單", 
                     items: imported.items, 
                     users: imported.users, 
-                    historyRecords: imported.historyRecords || imported.records || {},
+                    historyRecords: mergedHistory,
                     gasUrl: imported.gasUrl || DEFAULT_GAS_URL
                 };
                 save(); 
-                alert("還原成功！"); 
+                alert("還原成功！資料已完全載入。"); 
                 location.reload(); 
             } else { alert("檔案內容格式不符。"); }
         } catch (err) { alert("無法讀取檔案。"); }
@@ -331,6 +338,7 @@ function load() {
         try {
             const loaded = JSON.parse(s);
             if(loaded.users && loaded.users.length) db = loaded;
+            // 確保本地載入時也相容舊版 records
             if (loaded.records && !loaded.historyRecords) {
                 db.historyRecords = { [getTodayFormatted()]: loaded.records };
             }
@@ -379,7 +387,7 @@ function initAndExportLabels() {
 
 function startTracking() {
     const inputs = getCleanInputs(); if (!inputs.items.length || !inputs.users.length) return alert("請先完成設定");
-    db.items = inputs.items; db.users = inputs.users; db.title = document.getElementById('title-input'].value.trim() || "物品清單";
+    db.items = inputs.items; db.users = inputs.users; db.title = document.getElementById('title-input').value.trim() || "物品清單";
     document.getElementById('setup-panel').classList.add('hidden');
     document.getElementById('tracking-panel').classList.remove('hidden');
     document.getElementById('display-title').innerText = db.title;
@@ -504,7 +512,6 @@ window.addEventListener('keydown', e => {
     const isModalActive = !document.getElementById('modal-overlay').classList.contains('hidden');
     if (!isTrackingActive || isModalActive) return;
 
-    // 如果使用者正在設定或其他文字框內打字，不進行全域攔截
     if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) && e.target.id !== 'scan-input') return;
 
     if (e.key === 'Enter') {
@@ -514,7 +521,6 @@ window.addEventListener('keydown', e => {
         return;
     }
 
-    // 解析按鍵對應的英數字元（不管當前輸入法是中文還是英文）
     let char = '';
     if (e.key.length === 1) {
         char = e.key;
@@ -529,11 +535,9 @@ window.addEventListener('keydown', e => {
     if (char) {
         scanBuffer += char.toUpperCase();
         
-        // 同步顯示在畫面的輸入框上供檢視
         const scanInputBox = document.getElementById('scan-input');
         if (scanInputBox) scanInputBox.value = scanBuffer;
 
-        // 條碼槍輸入速度極快，若超過 50ms 沒有新字元則自動判定輸入完成或累積長度足夠時處理
         clearTimeout(scanTimer);
         scanTimer = setTimeout(() => {
             if (scanBuffer.length >= 5) {
