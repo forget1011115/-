@@ -27,7 +27,6 @@
         .header-row-2 { display: flex; justify-content: space-between; align-items: center; gap: 15px; height: 45px; margin-top: 6px; }
         .row-2-left { display: flex; align-items: center; gap: 10px; }
         
-        /* 保留在畫面上看得見的輸入框 */
         #scan-input { width: 160px; padding: 6px 10px; font-size: 18px; border: 3px solid var(--primary); border-radius: 8px; text-align: center; box-sizing: border-box; background: #fffde7; outline: none; }
 
         .row-2-right { display: flex; gap: 8px; align-items: center; }
@@ -88,7 +87,7 @@
         </div>
         <div class="setup-actions">
             <button class="btn btn-main" style="background:var(--primary);" onclick="initAndExportLabels()">💾 儲存並導出標籤檔</button>
-            <button class="btn btn-main" style="background:var(--info);" onclick="startTracking()">🚀 直接進入/返回清點頁面</button>
+            <button class="btn btn-main" style="background:var(--info);" onclick="startTracking()">🚀 直接進入/返回清單頁面</button>
         </div>
     </div>
 
@@ -111,8 +110,7 @@
                         
             <div class="header-row-2">
                 <div class="row-2-left">
-                    <!-- 保留在畫面上看得見的輸入框，並加入強效攔截機制 -->
-                    <input type="text" id="scan-input" placeholder="掃描..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+                    <input type="text" id="scan-input" placeholder="掃描顯示..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
                     <button class="btn mode-btn active" id="btn-mode-normal" style="background:var(--success);" onclick="setMode('normal')">🟢 清點(已繳)</button>
                     <button class="btn mode-btn" id="btn-mode-fix" style="background:var(--warning);" onclick="setMode('fix')">🟡 登記未訂正</button>
                     <button class="btn mode-btn" id="btn-mode-leave" style="background:#95a5a6;" onclick="setMode('leave')">🔵 點擊姓名請假</button>
@@ -280,8 +278,6 @@ function setMode(mode) {
         btnDelete.classList.add('active', 'btn-delete-active');
     }
     renderMatrix();
-    const scanInput = document.getElementById('scan-input');
-    if (scanInput) scanInput.focus();
 }
 
 function getCleanInputs() {
@@ -383,7 +379,7 @@ function initAndExportLabels() {
 
 function startTracking() {
     const inputs = getCleanInputs(); if (!inputs.items.length || !inputs.users.length) return alert("請先完成設定");
-    db.items = inputs.items; db.users = inputs.users; db.title = document.getElementById('title-input').value.trim() || "物品清單";
+    db.items = inputs.items; db.users = inputs.users; db.title = document.getElementById('title-input'].value.trim() || "物品清單";
     document.getElementById('setup-panel').classList.add('hidden');
     document.getElementById('tracking-panel').classList.remove('hidden');
     document.getElementById('display-title').innerText = db.title;
@@ -470,10 +466,6 @@ function renderMatrix() {
     
     container.innerHTML = h + `</tbody></table>`; 
     updateStats();
-    setTimeout(() => {
-        const el = document.getElementById('scan-input');
-        if (el) el.focus();
-    }, 150);
 }
 
 function handleUserClick(uIdx) {
@@ -503,63 +495,78 @@ function handleCellClick(code) {
     }
 }
 
-// 🌟 核心修改：在保留輸入框的情況下，強制攔截鍵盤事件並自動轉譯成大寫英文/數字
-const scanInput = document.getElementById('scan-input');
-if (scanInput) {
-    scanInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            e.target.value = '';
-            return;
-        }
+// 🌟 終極全域條碼接收器（不受中文輸入法干擾）
+let scanBuffer = "";
+let scanTimer = null;
 
-        let char = '';
-        if (e.key.length === 1) {
-            char = e.key;
-        } else if (e.code && e.code.startsWith('Key')) {
-            char = e.code.replace('Key', '');
-        } else if (e.code && e.code.startsWith('Digit')) {
-            char = e.code.replace('Digit', '');
-        } else if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
-            char = '-';
-        }
+window.addEventListener('keydown', e => {
+    const isTrackingActive = !document.getElementById('tracking-panel').classList.contains('hidden');
+    const isModalActive = !document.getElementById('modal-overlay').classList.contains('hidden');
+    if (!isTrackingActive || isModalActive) return;
 
-        if (char) {
-            e.preventDefault(); // 阻止作業系統的注音/中文輸入法干擾
-            scanInput.value += char.toUpperCase();
-            
-            let val = scanInput.value.trim();
-            let cleanVal = val.replace(/\*/g, '');
-            if (cleanVal.length >= 5) {
-                const targetCode = cleanVal.substring(0, 5);
-                const cell = document.getElementById(`cell-${targetCode}`);
-                if (cell && !cell.parentNode.classList.contains('empty-row')) {
-                    const letter = targetCode.charAt(0);
-                    const recs = getCurrentDateRecords();
-                    if (currentMode === 'normal') recs[targetCode] = 'ok';
-                    if (currentMode === 'fix') recs[targetCode] = 'fix';
-                    if (currentMode === 'delete') {
-                        delete recs[targetCode];
-                    }
-                    if (currentMode !== 'delete') {
-                        autoCheckItemByLetter(letter);
-                    }
-                    renderMatrix(); 
-                    save();
-                    syncToGASSilent();
-                }
-                scanInput.value = '';
+    // 如果使用者正在設定或其他文字框內打字，不進行全域攔截
+    if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) && e.target.id !== 'scan-input') return;
+
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        processBarcode(scanBuffer);
+        scanBuffer = "";
+        return;
+    }
+
+    // 解析按鍵對應的英數字元（不管當前輸入法是中文還是英文）
+    let char = '';
+    if (e.key.length === 1) {
+        char = e.key;
+    } else if (e.code && e.code.startsWith('Key')) {
+        char = e.code.replace('Key', '');
+    } else if (e.code && e.code.startsWith('Digit')) {
+        char = e.code.replace('Digit', '');
+    } else if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
+        char = '-';
+    }
+
+    if (char) {
+        scanBuffer += char.toUpperCase();
+        
+        // 同步顯示在畫面的輸入框上供檢視
+        const scanInputBox = document.getElementById('scan-input');
+        if (scanInputBox) scanInputBox.value = scanBuffer;
+
+        // 條碼槍輸入速度極快，若超過 50ms 沒有新字元則自動判定輸入完成或累積長度足夠時處理
+        clearTimeout(scanTimer);
+        scanTimer = setTimeout(() => {
+            if (scanBuffer.length >= 5) {
+                processBarcode(scanBuffer);
+                scanBuffer = "";
+                const scanInputBox = document.getElementById('scan-input');
+                if (scanInputBox) scanInputBox.value = "";
             }
-        }
-    });
+        }, 80);
+    }
+});
 
-    scanInput.addEventListener('blur', () => {
-        const isTrackingActive = !document.getElementById('tracking-panel').classList.contains('hidden');
-        const isModalActive = !document.getElementById('modal-overlay').classList.contains('hidden');
-        if (isTrackingActive && !isModalActive) {
-            setTimeout(() => scanInput.focus(), 100);
+function processBarcode(rawVal) {
+    let cleanVal = rawVal.replace(/\*/g, '').trim();
+    if (cleanVal.length >= 5) {
+        const targetCode = cleanVal.substring(0, 5);
+        const cell = document.getElementById(`cell-${targetCode}`);
+        if (cell && !cell.parentNode.classList.contains('empty-row')) {
+            const letter = targetCode.charAt(0);
+            const recs = getCurrentDateRecords();
+            if (currentMode === 'normal') recs[targetCode] = 'ok';
+            if (currentMode === 'fix') recs[targetCode] = 'fix';
+            if (currentMode === 'delete') {
+                delete recs[targetCode];
+            }
+            if (currentMode !== 'delete') {
+                autoCheckItemByLetter(letter);
+            }
+            renderMatrix(); 
+            save();
+            syncToGASSilent();
         }
-    });
+    }
 }
 
 function showMissingReport() {
@@ -590,7 +597,6 @@ function showMissingReport() {
 
 function closeModal() { 
     document.getElementById('modal-overlay').classList.add('hidden'); 
-    if (scanInput) scanInput.focus(); 
 }
 
 function updateStats() {
