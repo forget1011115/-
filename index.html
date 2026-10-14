@@ -170,7 +170,6 @@ function setDatePickerValue(dateStr) {
     document.getElementById('target-date-input').value = dateStr.replace(/\//g, '-');
 }
 
-// 🌟 當切換日期時，若本地無紀錄，自動向 GAS 雲端抓取該日歷史資料
 function onDateChanged() {
     currentDateStr = getDatePickerValue();
     updateHistoryVisualState();
@@ -182,6 +181,7 @@ function onDateChanged() {
     }
 }
 
+// 🌟 修正後的歷史資料抓取與相容解析，確保切換日期時能正確渲染顏色
 function fetchHistoryDataFromGAS(dateStr) {
     const url = getGasUrl();
     if (!url) {
@@ -193,23 +193,46 @@ function fetchHistoryDataFromGAS(dateStr) {
     fetch(`${url}?action=getHistoryDateData&date=${dateStr}`)
     .then(res => res.json())
     .then(resData => {
-        if (resData.status === "success" && resData.itemsData) {
-            let fetchedRecs = {};
-            // 🌟 修正：精準解析雲端回傳的 itemsData 格式並補齊 3 位數座號
-            db.items.forEach((itemName, iIdx) => {
-                const letter = String.fromCharCode(65 + iIdx);
-                if (resData.itemsData[itemName]) {
-                    const itemRecs = resData.itemsData[itemName];
-                    Object.keys(itemRecs).forEach(uCode => {
-                        const cleanUCode = uCode.toString().padStart(3, '0');
-                        const code = `${letter}-${cleanUCode}`;
-                        fetchedRecs[code] = itemRecs[uCode];
-                    });
-                }
-            });
+        let fetchedRecs = {};
+        if (resData.status === "success") {
+            if (resData.itemsData) {
+                db.items.forEach((itemName, iIdx) => {
+                    const letter = String.fromCharCode(65 + iIdx);
+                    if (resData.itemsData[itemName]) {
+                        const itemRecs = resData.itemsData[itemName];
+                        Object.keys(itemRecs).forEach(uCode => {
+                            const cleanUCode = uCode.toString().padStart(3, '0');
+                            const code = `${letter}-${cleanUCode}`;
+                            fetchedRecs[code] = itemRecs[uCode];
+                        });
+                    }
+                });
+            } else if (resData.summaryData) {
+                const summary = resData.summaryData;
+                Object.keys(summary).forEach(uCode => {
+                    const cleanUCode = uCode.toString().padStart(3, '0');
+                    const statusText = summary[uCode];
+                    if (statusText === "已完成") {
+                        db.items.forEach((_, iIdx) => {
+                            const letter = String.fromCharCode(65 + iIdx);
+                            fetchedRecs[`${letter}-${cleanUCode}`] = 'ok';
+                        });
+                    } else if (statusText) {
+                        db.items.forEach((itemName, iIdx) => {
+                            const letter = String.fromCharCode(65 + iIdx);
+                            const code = `${letter}-${cleanUCode}`;
+                            if (statusText.indexOf(itemName) > -1) {
+                                fetchedRecs[code] = (statusText.indexOf(itemName + " 未訂正") > -1) ? 'fix' : 'none';
+                            } else {
+                                fetchedRecs[code] = 'ok';
+                            }
+                        });
+                    }
+                });
+            }
             db.historyRecords[dateStr] = fetchedRecs;
             save();
-            console.log(`✅ 成功載入 ${dateStr} 的雲端歷史記錄！`);
+            console.log(`✅ 成功載入 ${dateStr} 的歷史記錄並渲染！`);
         }
         renderMatrix();
     })
@@ -673,4 +696,28 @@ function syncToGAS() {
         try {
             const data = JSON.parse(text);
             if (data.warning === "HOLIDAY_WARNING" || data.isHoliday === true) {
-                alert(`⚠️ 【連假靜音提醒】\n目前同步日期：${currentDateStr}\n若已收假，請記得回到試算表選單開啟自動推播。
+                alert(`⚠️ 【連假靜音提醒】\n目前同步日期：${currentDateStr}\n若已收假，請記得回到試算表選單開啟自動推播。`);
+            } else {
+                alert(`✅ 【${currentDateStr}】資料已成功發送至 Google 試算表！`);
+            }
+        } catch (e) {
+            alert(`✅ 【${currentDateStr}】資料已成功更新至試算表！`);
+        }
+    })
+    .catch(err => {
+        console.error("同步錯誤:", err);
+        alert("❌ 同步失敗：" + err);
+    });
+}
+
+function reset() { 
+    if(confirm("徹底重設？")){ 
+        localStorage.removeItem(storageKey); 
+        location.reload(); 
+    } 
+}
+
+window.onload = load;
+</script>
+</body>
+</html>
