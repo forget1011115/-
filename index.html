@@ -170,18 +170,13 @@ function setDatePickerValue(dateStr) {
     document.getElementById('target-date-input').value = dateStr.replace(/\//g, '-');
 }
 
+// 🌟 強制每次切換日期都向雲端撈取最新歷史記錄，確保點選任何一天都能正常同步與渲染
 function onDateChanged() {
     currentDateStr = getDatePickerValue();
     updateHistoryVisualState();
-
-    if (!db.historyRecords[currentDateStr] || Object.keys(db.historyRecords[currentDateStr]).length === 0) {
-        fetchHistoryDataFromGAS(currentDateStr);
-    } else {
-        renderMatrix();
-    }
+    fetchHistoryDataFromGAS(currentDateStr);
 }
 
-// 🌟 修正後的歷史資料抓取與相容解析，確保切換日期時能正確渲染顏色
 function fetchHistoryDataFromGAS(dateStr) {
     const url = getGasUrl();
     if (!url) {
@@ -564,7 +559,7 @@ function showMissingReport() {
     });
     
     document.getElementById('modal-title-text').innerHTML = `<span>❌ ${currentDateStr} 缺交/未訂正名單</span><button onclick="closeModal()" style="background:none; border:none; font-size:24px; cursor:pointer;">×</button>`;
-    document.getElementById('modal-body').innerHTML = found ? reportHtml : "<div style='text-align:center; color:green; font-size:20px; padding:20px;'>✅ 本次統計項目已全數清點完畢！</div>";
+    document.getElementById('modal-body').innerHTML = found ? reportHtml : "<div style='text-align:center; color:green; font-size:20px; padding:20px;'>✅ 本次統計項目已全數清單完畢！</div>";
     document.getElementById('modal-overlay').classList.remove('hidden');
 }
 
