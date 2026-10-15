@@ -779,7 +779,7 @@ function syncToGASSilent() {
         let payload = {
             action: "syncHomework",
             date: currentDateStr,
-            customItemNames: getPayloadCustomNamesMap(),
+            customItemNames: getPayloadCustomNamesMap(), // 🌟 已修復：補上自訂項目名稱
             tempItems: db.tempItems && db.tempItems[currentDateStr] ? db.tempItems[currentDateStr] : [],
             items: []
         };
@@ -826,7 +826,7 @@ function syncToGAS() {
     let payload = {
         action: "syncHomework",
         date: currentDateStr,
-        customItemNames: getPayloadCustomNamesMap(),
+        customItemNames: getPayloadCustomNamesMap(), // 🌟 已修復：補上自訂項目名稱
         tempItems: db.tempItems && db.tempItems[currentDateStr] ? db.tempItems[currentDateStr] : [],
         items: []
     };
