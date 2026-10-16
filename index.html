@@ -590,9 +590,10 @@ function handleCellClick(code, iIdx) {
     const originalName = allItems[iIdx];
     const recs = getCurrentDateRecords();
 
+    // 🌟 修正「其他」的動態命名機制：直接變更對應名稱，不產生幽靈分頁
     if (originalName === "其他" || originalName.includes("其他")) {
         let currentCustomName = getActualItemName(iIdx);
-        let actionChoice = prompt(`📌 您點擊了【${currentCustomName}】的格子。\n請輸入新的具體名稱（或按取消以直接切換狀態）：`, currentCustomName);
+        let actionChoice = prompt(`📌 您點擊了【${currentCustomName}】的格子。\n請輸入新的具體名稱（或按取消以直接切換狀態）：`, currentCustomName === "其他" ? "" : currentCustomName);
         
         if (actionChoice !== null && actionChoice.trim() !== "" && actionChoice.trim() !== currentCustomName) {
             if (!db.customItemNames) db.customItemNames = {};
@@ -673,6 +674,24 @@ function processBarcode(rawVal) {
         const cell = document.getElementById(`cell-${targetCode}`);
         if (cell && !cell.parentNode.classList.contains('empty-row')) {
             const letter = targetCode.charAt(0);
+            
+            // 🌟 智慧偵測：若掃描到「其他」代號（假設其他是第10項，即字母 J），且尚未重新命名，自動引導命名
+            const iIdx = letter.charCodeAt(0) - 65;
+            const allItems = getAllItemsForDate();
+            if (iIdx < allItems.length && (allItems[iIdx] === "other" || allItems[iIdx] === "其他")) {
+                let currentCustomName = getActualItemName(iIdx);
+                if (currentCustomName === "其他") {
+                    let newName = prompt("📌 偵測您正在掃描【其他】項目。\n請輸入這項臨時作業的具體名稱（例如：國卷L1）：", "");
+                    if (newName && newName.trim() !== "") {
+                        if (!db.customItemNames) db.customItemNames = {};
+                        if (!db.customItemNames[currentDateStr]) db.customItemNames[currentDateStr] = {};
+                        db.customItemNames[currentDateStr][allItems[iIdx]] = newName.trim();
+                        renderItemCheckers();
+                        renderMatrix();
+                    }
+                }
+            }
+
             const recs = getCurrentDateRecords();
             if (currentMode === 'normal') recs[targetCode] = 'ok';
             if (currentMode === 'fix') recs[targetCode] = 'fix';
@@ -779,7 +798,7 @@ function syncToGASSilent() {
         let payload = {
             action: "syncHomework",
             date: currentDateStr,
-            customItemNames: getPayloadCustomNamesMap(), // 🌟 已修復：補上自訂項目名稱
+            customItemNames: getPayloadCustomNamesMap(),
             tempItems: db.tempItems && db.tempItems[currentDateStr] ? db.tempItems[currentDateStr] : [],
             items: []
         };
@@ -826,7 +845,7 @@ function syncToGAS() {
     let payload = {
         action: "syncHomework",
         date: currentDateStr,
-        customItemNames: getPayloadCustomNamesMap(), // 🌟 已修復：補上自訂項目名稱
+        customItemNames: getPayloadCustomNamesMap(),
         tempItems: db.tempItems && db.tempItems[currentDateStr] ? db.tempItems[currentDateStr] : [],
         items: []
     };
