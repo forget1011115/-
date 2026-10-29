@@ -514,24 +514,48 @@ function autoCheckActiveItemsForCurrentDate() {
     });
 }
 
+// 🌟 已升級：改為跳出提示選單讓老師「單獨選擇一項作業」進行全繳，徹底防止誤觸其他舊作業
 function markCheckedItemsAsAllOk() {
-    const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
-    if (checkedTargets.length === 0) return alert("⚠️ 請先在最上方勾選要設定『勾選項全繳』的作業項目！");
+    const allItems = getAllItemsForDate();
+    if (allItems.length === 0) return alert("⚠️ 目前沒有任何作業項目！");
+
+    let msg = "📌 請輸入您想設為【全繳】的作業編號或名稱：\n\n";
+    allItems.forEach((item, idx) => {
+        const displayName = getActualItemName(idx);
+        msg += `[${idx + 1}] ${displayName}\n`;
+    });
+    msg += "\n請輸入對應的數字：";
+
+    let inputVal = prompt(msg);
+    if (!inputVal) return;
+
+    let selectedIdx = parseInt(inputVal.trim()) - 1;
+    if (isNaN(selectedIdx) || selectedIdx < 0 || selectedIdx >= allItems.length) {
+        return alert("❌ 輸入的編號不正確，操作已取消。");
+    }
+
+    const itemName = getActualItemName(selectedIdx);
+    if (!confirm(`確定要將【${itemName}】設定為全班皆已繳交嗎？`)) {
+        return;
+    }
 
     const recs = getCurrentDateRecords();
-    checkedTargets.forEach(iIdx => {
-        const letter = String.fromCharCode(65 + iIdx);
-        db.users.forEach((u, uIdx) => {
-            if (u.trim() && u.trim() !== "空" && u.trim() !== "從缺") {
-                const uCode = (uIdx + 1).toString().padStart(3, '0');
-                recs[`${letter}-${uCode}`] = 'ok';
-            }
-        });
+    const letter = String.fromCharCode(65 + selectedIdx);
+    
+    db.users.forEach((u, uIdx) => {
+        if (u.trim() && u.trim() !== "空" && u.trim() !== "從缺") {
+            const uCode = (uIdx + 1).toString().padStart(3, '0');
+            recs[`${letter}-${uCode}`] = 'ok';
+        }
     });
+
+    const checkbox = document.querySelector(`.target-item[value="${selectedIdx}"]`);
+    if (checkbox) checkbox.checked = true;
 
     renderMatrix(); 
     save();
     syncToGASSilent();
+    alert(`✅ 已成功將【${itemName}】設為全班全繳！`);
 }
 
 function renderMatrix() {
@@ -590,7 +614,6 @@ function handleCellClick(code, iIdx) {
     const originalName = allItems[iIdx];
     const recs = getCurrentDateRecords();
 
-    // 🌟 修正「其他」的動態命名機制：直接變更對應名稱，不產生幽靈分頁
     if (originalName === "其他" || originalName.includes("其他")) {
         let currentCustomName = getActualItemName(iIdx);
         let actionChoice = prompt(`📌 您點擊了【${currentCustomName}】的格子。\n請輸入新的具體名稱（或按取消以直接切換狀態）：`, currentCustomName === "其他" ? "" : currentCustomName);
@@ -675,7 +698,6 @@ function processBarcode(rawVal) {
         if (cell && !cell.parentNode.classList.contains('empty-row')) {
             const letter = targetCode.charAt(0);
             
-            // 🌟 智慧偵測：若掃描到「其他」代號（假設其他是第10項，即字母 J），且尚未重新命名，自動引導命名
             const iIdx = letter.charCodeAt(0) - 65;
             const allItems = getAllItemsForDate();
             if (iIdx < allItems.length && (allItems[iIdx] === "other" || allItems[iIdx] === "其他")) {
