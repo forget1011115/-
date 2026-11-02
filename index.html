@@ -514,7 +514,6 @@ function autoCheckActiveItemsForCurrentDate() {
     });
 }
 
-// 🌟 已升級：改為跳出提示選單讓老師「單獨選擇一項作業」進行全繳，徹底防止誤觸其他舊作業
 function markCheckedItemsAsAllOk() {
     const allItems = getAllItemsForDate();
     if (allItems.length === 0) return alert("⚠️ 目前沒有任何作業項目！");
@@ -593,17 +592,24 @@ function renderMatrix() {
     updateStats();
 }
 
+// 🌟 已升級：點擊請假時，只對「上方目前有勾選（選中）」的作業項目生效，絕不影響未清點的作業
 function handleUserClick(uIdx) {
     if (currentMode !== 'leave') return;
+    
+    const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
+    if (checkedTargets.length === 0) {
+        return alert("⚠️ 請先在最上方勾選今天要清點/收發的作業項目，再點擊學生姓名請假！");
+    }
+
     const uCode = (uIdx + 1).toString().padStart(3, '0');
     const recs = getCurrentDateRecords();
-    const allItems = getAllItemsForDate();
-    allItems.forEach((_, iIdx) => {
+
+    checkedTargets.forEach(iIdx => {
         const letter = String.fromCharCode(65 + iIdx);
         const code = `${letter}-${uCode}`;
         recs[code] = 'leave';
-        autoCheckItemByLetter(letter);
     });
+
     renderMatrix(); 
     save();
     syncToGASSilent();
@@ -739,8 +745,12 @@ function showMissingReport() {
     let reportHtml = ""; let found = false;
     
     checkedTargets.forEach(itemIdx => {
-        const itemName = getActualItemName(itemIdx);
         const letter = String.fromCharCode(65 + itemIdx); 
+        
+        const hasAnyRecord = Object.keys(recs).some(code => code.startsWith(`${letter}-`));
+        if (!hasAnyRecord) return;
+
+        const itemName = getActualItemName(itemIdx);
         let missing = [];
         db.users.forEach((u, uIdx) => {
             if (u.trim() && u.trim() !== "空" && u.trim() !== "從缺") {
@@ -827,8 +837,12 @@ function syncToGASSilent() {
 
         const allItems = getAllItemsForDate();
         checkedTargets.forEach(iIdx => {
-            const itemName = getActualItemName(iIdx);
             const letter = String.fromCharCode(65 + iIdx);
+
+            const hasAnyRecord = Object.keys(recs).some(code => code.startsWith(`${letter}-`));
+            if (!hasAnyRecord) return;
+
+            const itemName = getActualItemName(iIdx);
             let records = {};
 
             db.users.forEach((u, uIdx) => {
@@ -845,6 +859,8 @@ function syncToGASSilent() {
             });
             payload.items.push({ itemName: itemName, records: records });
         });
+
+        if (payload.items.length === 0) return;
 
         fetch(url, {
             method: "POST",
@@ -874,8 +890,12 @@ function syncToGAS() {
 
     const allItems = getAllItemsForDate();
     checkedTargets.forEach(iIdx => {
-        const itemName = getActualItemName(iIdx);
         const letter = String.fromCharCode(65 + iIdx);
+
+        const hasAnyRecord = Object.keys(recs).some(code => code.startsWith(`${letter}-`));
+        if (!hasAnyRecord) return;
+
+        const itemName = getActualItemName(iIdx);
         let records = {};
 
         db.users.forEach((u, uIdx) => {
@@ -892,6 +912,10 @@ function syncToGAS() {
         });
         payload.items.push({ itemName: itemName, records: records });
     });
+
+    if (payload.items.length === 0) {
+        return alert("⚠️ 勾選的作業項目今天皆尚未開始清點，無資料可進行同步！");
+    }
 
     fetch(url, {
         method: "POST",
