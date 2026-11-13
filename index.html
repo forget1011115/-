@@ -227,20 +227,20 @@ function toggleHolidayMode() {
     });
 }
 
-function fetchHistoryDataFromGAS(dateStr) {
+function fetchHistoryDataFromGAS(dateStr, skipRender = false) {
     const url = getGasUrl();
     if (!url) {
-        renderMatrix();
-        return;
+        if (!skipRender) renderMatrix();
+        return Promise.resolve();
     }
 
     console.log(`🌐 正在向雲端查詢 ${dateStr} 的歷史記錄...`);
-    fetch(`${url}?action=getHistoryDateData&date=${dateStr}`)
+    return fetch(`${url}?action=getHistoryDateData&date=${dateStr}`)
     .then(res => res.json())
     .then(resData => {
         let fetchedRecs = {};
         if (resData.status === "success") {
-            if (typeof resData.isHoliday !== 'undefined') {
+            if (typeof resData.isHoliday !== 'undefined' && !skipRender) {
                 isHolidayMuted = resData.isHoliday;
                 updateHolidayBtnUI();
             }
@@ -253,8 +253,11 @@ function fetchHistoryDataFromGAS(dateStr) {
                 db.tempItems[dateStr] = resData.tempItems[dateStr];
             }
             if (resData.itemsData) {
-                const activeItemsList = getAllItemsForDate();
-                activeItemsList.forEach((itemName, iIdx) => {
+                let dateItems = [...db.items];
+                if (db.tempItems && db.tempItems[dateStr]) {
+                    dateItems = dateItems.concat(db.tempItems[dateStr]);
+                }
+                dateItems.forEach((itemName, iIdx) => {
                     const letter = String.fromCharCode(65 + iIdx);
                     if (resData.itemsData[itemName]) {
                         const itemRecs = resData.itemsData[itemName];
@@ -268,15 +271,19 @@ function fetchHistoryDataFromGAS(dateStr) {
             }
             db.historyRecords[dateStr] = fetchedRecs;
             save();
-            renderItemCheckers();
-            console.log(`✅ 成功載入 ${dateStr} 的歷史記錄並渲染！`);
+            if (!skipRender) {
+                renderItemCheckers();
+                console.log(`✅ 成功載入 ${dateStr} 的歷史記錄並渲染！`);
+            }
         }
-        renderMatrix();
+        if (!skipRender) renderMatrix();
     })
     .catch(err => {
         console.error("抓取歷史資料失敗:", err);
-        renderItemCheckers();
-        renderMatrix();
+        if (!skipRender) {
+            renderItemCheckers();
+            renderMatrix();
+        }
     });
 }
 
@@ -736,35 +743,145 @@ function processBarcode(rawVal) {
     }
 }
 
-function showMissingReport() {
-    autoCheckActiveItemsForCurrentDate();
-    const checkedTargets = Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value));
-    if (checkedTargets.length === 0) return alert("⚠️ 請先在最上方勾選本次要統計的項目！");
-    
-    const recs = getCurrentDateRecords();
-    let reportHtml = ""; let found = false;
-    
-    checkedTargets.forEach(itemIdx => {
-        const letter = String.fromCharCode(65 + itemIdx); 
-        
-        const hasAnyRecord = Object.keys(recs).some(code => code.startsWith(`${letter}-`));
-        if (!hasAnyRecord) return;
+async function showMissingReport() {
+    // 1. 彈出選單讓老師選擇要統計幾天內的名單
+    let inputDays = prompt("📊 請選擇要統計的缺交天數範圍：\n\n[1] 當天 (1天)\n[2] 最近 2 天\n[3] 最近 3 天\n[5] 最近 5 天\n[7] 最近 7 天\n\n請輸入對應的數字 (1-7)：", "1");
+    if (!inputDays) return;
 
-        const itemName = getActualItemName(itemIdx);
-        let missing = [];
-        db.users.forEach((u, uIdx) => {
-            if (u.trim() && u.trim() !== "空" && u.trim() !== "從缺") {
-                const code = `${letter}-${(uIdx+1).toString().padStart(3,'0')}`; 
-                const status = recs[code];
-                if (!status || status === 'none') missing.push(`${u} (未繳)`);
-                if (status === 'fix') missing.push(`${u} (未訂正)`);
-            }
-        });
-        if (missing.length > 0) { found = true; reportHtml += `<div class="missing-group"><span class="missing-item-title">📦 ${itemName}</span><div class="missing-names">${missing.join('、')}</div></div>`; }
-    });
+    let daysCount = parseInt(inputDays.trim());
+    if (isNaN(daysCount) || daysCount < 1 || daysCount > 30) {
+        return alert("❌ 輸入的天數不正確，操作已取消。");
+    }
+
+    // 2. 以目前畫面選擇的日期 (currentDateStr) 為基準，往前推算 daysCount 天
+    autoCheckActiveItemsForCurrentDate();
+    let targetDates = [];
+    let baseParts = currentDateStr.split('/');
+    let baseDateObj = new Date(parseInt(baseParts[0]), parseInt(baseParts[1]) - 1, parseInt(baseParts[2]));
     
-    document.getElementById('modal-title-text').innerHTML = `<span>❌ ${currentDateStr} 缺交/未訂正名單</span><button onclick="closeModal()" style="background:none; border:none; font-size:22px; cursor:pointer;">×</button>`;
-    document.getElementById('modal-body').innerHTML = found ? reportHtml : "<div style='text-align:center; color:green; font-size:18px; padding:15px;'>✅ 本次統計項目已全數清單完畢！</div>";
+    for (let i = 0; i < daysCount; i++) {
+        let d = new Date(baseDateObj);
+        d.setDate(baseDateObj.getDate() - i);
+        let dateStr = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+        targetDates.push(dateStr);
+    }
+
+    // 若查詢多天且本地尚無該日歷史快取，自動先向雲端試算表補抓資料
+    if (daysCount > 1 && getGasUrl()) {
+        let missingDatesToFetch = targetDates.filter(dStr => dStr !== currentDateStr && !db.historyRecords[dStr]);
+        if (missingDatesToFetch.length > 0) {
+            document.getElementById('modal-title-text').innerHTML = `<span>⏳ 正在同步雲端歷史紀錄...</span>`;
+            document.getElementById('modal-body').innerHTML = `<div style="text-align:center; padding:20px; font-size:16px;">正在讀取前幾天的試算表紀錄，請稍候...</div>`;
+            document.getElementById('modal-overlay').classList.remove('hidden');
+            await Promise.all(missingDatesToFetch.map(dStr => fetchHistoryDataFromGAS(dStr, true)));
+        }
+    }
+
+    // 3. 收集與彙整跨天缺交資料（以學生為主體，日期由舊到新排列，如 11/12.13）
+    let studentMissingMap = {};
+    let hasDataFound = false;
+    let chronologicalDates = [...targetDates].reverse();
+
+    chronologicalDates.forEach(dateStr => {
+        let recs = db.historyRecords[dateStr];
+        if (!recs) return;
+
+        let dateItems = [...db.items];
+        if (db.tempItems && db.tempItems[dateStr]) {
+            dateItems = dateItems.concat(db.tempItems[dateStr]);
+        }
+
+        // 若為當天，尊重畫面上方勾選的項目；若是過去日期，則統計該日所有有清點紀錄的項目
+        let checkedTargetsToday = (dateStr === currentDateStr) 
+            ? Array.from(document.querySelectorAll('.target-item:checked')).map(el => parseInt(el.value))
+            : null;
+
+        dateItems.forEach((item, itemIdx) => {
+            if (checkedTargetsToday !== null && !checkedTargetsToday.includes(itemIdx)) return;
+
+            let letter = String.fromCharCode(65 + itemIdx);
+            let hasAnyRecord = Object.keys(recs).some(code => code.startsWith(`${letter}-`));
+            if (!hasAnyRecord) return;
+
+            let itemName = item;
+            if (itemIdx < db.items.length && db.customItemNames && db.customItemNames[dateStr] && db.customItemNames[dateStr][item]) {
+                itemName = db.customItemNames[dateStr][item];
+            }
+
+            db.users.forEach((u, uIdx) => {
+                if (!u.trim() || u.trim() === "空" || u.trim() === "從缺") return;
+
+                let uCode = (uIdx + 1).toString().padStart(3, '0');
+                let code = `${letter}-${uCode}`;
+                let status = recs[code];
+
+                if (!status || status === 'none' || status === 'fix') {
+                    hasDataFound = true;
+                    if (!studentMissingMap[u]) studentMissingMap[u] = {};
+                    
+                    let shortDate = dateStr.substring(5); // 例如 "11/13"
+                    let statusLabel = (status === 'fix') ? `${shortDate}未訂正` : shortDate;
+
+                    if (!studentMissingMap[u][itemName]) {
+                        studentMissingMap[u][itemName] = [];
+                    }
+                    studentMissingMap[u][itemName].push(statusLabel);
+                }
+            });
+        });
+    });
+
+    // 4. 組合彈跳視窗的 HTML 呈現（格式：王小明 聯絡簿(11/13)、數習(11/12.13)）
+    let reportHtml = "";
+    if (hasDataFound) {
+        if (daysCount > 1) {
+            reportHtml += `<div style="font-size:14px; margin-bottom:10px; color:#555; font-weight:bold;">統計範圍：最近 ${daysCount} 天 (${chronologicalDates[0]} ~ ${chronologicalDates[chronologicalDates.length - 1]})</div>`;
+        }
+        
+        // 依照座號順序排列學生
+        db.users.forEach(studentName => {
+            if (!studentMissingMap[studentName]) return;
+            
+            let itemSummaryList = [];
+            let itemsObj = studentMissingMap[studentName];
+
+            Object.keys(itemsObj).forEach(itemName => {
+                let rawDates = itemsObj[itemName];
+                // 若同月份連續/多天純缺交，簡化為 11/12.13 的優雅格式
+                let formattedDates = [];
+                let lastMonth = "";
+                rawDates.forEach(d => {
+                    let parts = d.split('/');
+                    if (parts.length === 2 && parts[0] === lastMonth && !d.includes('未訂正')) {
+                        formattedDates.push(parts[1]);
+                    } else {
+                        formattedDates.push(d);
+                        if (parts.length === 2 && !d.includes('未訂正')) {
+                            lastMonth = parts[0];
+                        } else {
+                            lastMonth = "";
+                        }
+                    }
+                });
+
+                itemSummaryList.push(`${itemName}(${formattedDates.join('.')})`);
+            });
+
+            reportHtml += `
+                <div style="padding: 8px 4px; border-bottom: 1px dashed #ddd; font-size: 16px; line-height: 1.5;">
+                    <span style="font-weight: 900; color: #2c3e50; display: inline-block; min-width: 75px;">${studentName}</span>
+                    <span style="color: #c0392b; font-weight: bold;">${itemSummaryList.join('、')}</span>
+                </div>
+            `;
+        });
+    } else {
+        reportHtml = "<div style='text-align:center; color:green; font-size:18px; padding:20px;'>✅ 太棒了！選擇的範圍內所有清點項目皆已全部繳交完畢！</div>";
+    }
+
+    // 5. 顯示 Modal 視窗
+    let dateRangeTitleText = daysCount === 1 ? `${currentDateStr} 缺交名單` : `最近 ${daysCount} 天缺交總整理`;
+    document.getElementById('modal-title-text').innerHTML = `<span>❌ ${dateRangeTitleText}</span><button onclick="closeModal()" style="background:none; border:none; font-size:22px; cursor:pointer;">×</button>`;
+    document.getElementById('modal-body').innerHTML = reportHtml;
     document.getElementById('modal-overlay').classList.remove('hidden');
 }
 
@@ -953,3 +1070,8 @@ window.onload = load;
 </script>
 </body>
 </html>
+```[cite: 3]
+
+### 本次整合進去的優化重點：
+* **以學生為主體的列表**：按座號順序列出有缺交的學生，同月多天自動合併縮寫（例如 `數習(11/12.13)`），若有未訂正則會明確標註（例如 `國習(11/12未訂正)`）[cite: 3]。
+* **自動補抓雲端歷史紀錄**：點選「最近 2 天」以上時，若該電腦的快取還沒有前幾天的紀錄，會自動向您的 GAS 試算表抓取後再合併顯示，換電腦或重開瀏覽器也能正常跨日統計[cite: 3]。
